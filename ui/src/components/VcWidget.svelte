@@ -28,6 +28,15 @@
     widget.kind.type === 'slider' && widget.kind.mode === 'GrandMaster' ? (app.s.runtime?.state.grand_master ?? 1) : (active?.level ?? 0),
   );
 
+  // `new Date()` is not reactive, so the clock needs its own ticking state.
+  let now = $state(new Date());
+  $effect(() => {
+    if (widget.kind.type !== 'clock') return;
+    now = new Date();
+    const timer = setInterval(() => (now = new Date()), 1000);
+    return () => clearInterval(timer);
+  });
+
   let drag: { x: number; y: number } | null = null;
   let offset = $state({ x: 0, y: 0 });
 
@@ -46,11 +55,29 @@
   function move(e: PointerEvent) {
     if (drag) offset = { x: e.clientX - drag.x, y: e.clientY - drag.y };
   }
+  // After a drop the widget keeps its (snapped) offset until the new position
+  // arrives from the engine; resetting it immediately would flash the widget
+  // back to its old position for one round trip.
+  let settleTimer: ReturnType<typeof setTimeout> | undefined;
+  $effect(() => {
+    void p.x;
+    void p.y;
+    clearTimeout(settleTimer);
+    if (!drag) offset = { x: 0, y: 0 };
+  });
   function up() {
     if (design && drag) {
-      if (offset.x || offset.y) onmove(widget.id, Math.round(offset.x / 10) * 10, Math.round(offset.y / 10) * 10);
+      const dx = Math.round(offset.x / 10) * 10;
+      const dy = Math.round(offset.y / 10) * 10;
       drag = null;
-      offset = { x: 0, y: 0 };
+      if (dx || dy) {
+        offset = { x: dx, y: dy };
+        onmove(widget.id, dx, dy);
+        // Fallback if the move is rejected and the position never changes.
+        settleTimer = setTimeout(() => (offset = { x: 0, y: 0 }), 1500);
+      } else {
+        offset = { x: 0, y: 0 };
+      }
       return;
     }
     if (!design && widget.kind.type === 'button' && widget.kind.action === 'Flash') run({ type: 'widget_release', id: widget.id });
@@ -96,7 +123,7 @@
     <div class="val">{active?.position !== undefined && active?.position !== null ? `Cue ${active.position + 1}` : '—'}</div>
   {:else if widget.kind.type === 'clock'}
     <div class="label">{p.label}</div>
-    <div class="big">{new Date().toLocaleTimeString()}</div>
+    <div class="big">{now.toLocaleTimeString()}</div>
   {:else if widget.kind.type === 'speed_dial'}
     <div class="label">{p.label}</div>
     <div class="big">{app.s.runtime?.state.tempo.bpm.toFixed(1)}</div>
