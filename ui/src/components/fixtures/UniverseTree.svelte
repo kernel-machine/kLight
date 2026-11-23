@@ -4,7 +4,7 @@
   // Click a group to edit it; drag fixtures onto a group to add them.
   import { app, run } from '../../lib/app.svelte';
   import type { FixtureGroup, PatchedFixture } from '../../lib/protocol';
-  import { FIXTURE_DRAG, footprint, groupColor, groupRows, groupWithFixtures, groupsOf, nextId } from '../../lib/show';
+  import { FIXTURE_DRAG, footprint, groupColor, groupRows, groupWithFixtures, groupsOf, groupsWithoutFixtures, nextId } from '../../lib/show';
 
   let {
     selected,
@@ -51,6 +51,7 @@
       .filter((x) => x.rows.length > 0);
   }
   const ungrouped = (universe: number) => fixturesOf(universe).filter((f) => groupsOf(show, f.id).length === 0);
+  const orphans = $derived(groupsWithoutFixtures(show));
 
   async function remove(id: number, name: string) {
     const n = fixturesOf(id).length;
@@ -186,6 +187,39 @@
       {/if}
     </div>
   {/each}
+
+  {#if orphans.length}
+    <!-- Groups with no fixture in any universe: still listed, so they can be
+         edited (drop fixtures on them) or deleted. -->
+    <div class="universe">
+      <div class="uhead"><span class="uname"><b>Groups without fixtures</b></span></div>
+      <ul>
+        {#each orphans as g (g.id)}
+          {@const key = `g:none:${g.id}`}
+          <li
+            class="ghead"
+            class:sel={selectedGroup === g.id}
+            class:over={over === key}
+            style="--gc:{groupColor(show, g.id)}"
+            role="treeitem"
+            aria-selected={selectedGroup === g.id}
+            aria-label="Group {g.name}"
+            tabindex="0"
+            onclick={() => onselectgroup(selectedGroup === g.id ? null : g.id)}
+            onkeydown={(e) => { if (e.key === 'Enter') onselectgroup(selectedGroup === g.id ? null : g.id); }}
+            ondragover={(e) => { if (e.dataTransfer?.types.includes(FIXTURE_DRAG)) { e.preventDefault(); over = key; } }}
+            ondragleave={() => { if (over === key) over = null; }}
+            ondrop={(e) => dropOn(e, g)}
+          >
+            <span class="gcaret"></span>
+            <span class="swatch"></span>
+            <span class="gname">{g.name}</span>
+            <span class="muted count">{g.members.length ? 'fixtures deleted' : 'empty'}</span>
+          </li>
+        {/each}
+      </ul>
+    </div>
+  {/if}
 
   <div class="footer row">
     <span class="muted">{selected.size} selected</span>

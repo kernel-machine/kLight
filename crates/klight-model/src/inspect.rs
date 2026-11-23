@@ -3,8 +3,10 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::attributes::{AttributeValue, Color};
 use crate::fixture_def::Attribute;
-use crate::ids::{FixtureId, UniverseId};
+use crate::function::{FunctionKind, SceneValue, Target, ValueSource};
+use crate::ids::{FixtureId, FunctionId, UniverseId};
 use crate::patch::{PatchedFixture, UNIVERSE_SIZE};
 use crate::show::Show;
 use crate::validate;
@@ -182,6 +184,49 @@ pub struct FixturePreview {
     pub channels: Vec<PreviewChannel>,
 }
 
+/// The color a function shows (for a button or a swatch): the first color
+/// its scene sets, explicitly or through a color palette, with the palette
+/// values of the first fixture the value targets (as the engine resolves
+/// them). `None` for functions that are not scenes or set no color.
+pub fn function_color(show: &Show, id: FunctionId) -> Option<Color> {
+    let FunctionKind::Scene(scene) = &show.function(id)?.kind else {
+        return None;
+    };
+    scene
+        .values
+        .iter()
+        .find_map(|sv| scene_value_color(show, sv))
+}
+
+/// The color one scene value sets, explicitly or through a color palette
+/// (values of the first fixture it targets), or `None`.
+pub fn scene_value_color(show: &Show, sv: &SceneValue) -> Option<Color> {
+    match &sv.value {
+        ValueSource::Explicit {
+            value: AttributeValue::Color { color },
+        } => Some(*color),
+        ValueSource::Explicit { .. } => None,
+        ValueSource::Palette { id } => {
+            let palette = show.palette(*id)?;
+            let values = match first_fixture(show, &sv.target) {
+                Some(f) => palette.values_for(f),
+                None => palette.generic.as_slice(),
+            };
+            values.iter().find_map(|v| match v {
+                AttributeValue::Color { color } => Some(*color),
+                _ => None,
+            })
+        }
+    }
+}
+
+fn first_fixture(show: &Show, target: &Target) -> Option<FixtureId> {
+    match target {
+        Target::Fixture { id } | Target::Head { id, .. } => Some(*id),
+        Target::Group { id } => show.group(*id)?.members.first().map(|m| m.fixture),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -271,5 +316,75 @@ mod tests {
         let info = fixture_info(&s, &s.fixtures[0]);
         assert!(info.has_position && info.has_color_mixing);
         assert_eq!(info.footprint, 6);
+    }
+
+    #[test]
+    fn function_color_explicit_palette_and_per_fixture() {
+        use crate::function::{Function, Scene};
+        use crate::ids::PaletteId;
+        use crate::palette::{FixturePaletteValues, Palette, PaletteKind};
+        let mut s = show(&[1, 20]);
+        let red = Color::new(1.0, 0.0, 0.0);
+        let blue = Color::new(0.0, 0.0, 1.0);
+        s.palettes.push(Palette {
+            id: PaletteId(1),
+            name: "p".into(),
+            kind: PaletteKind::Color,
+            generic: vec![AttributeValue::Color { color: red }],
+            per_fixture: vec![FixturePaletteValues {
+                fixture: FixtureId(2),
+                values: vec![AttributeValue::Color { color: blue }],
+            }],
+        });
+        let scene = |id: u32, values: Vec<SceneValue>| Function {
+            id: FunctionId(id),
+            name: format!("s{id}"),
+            kind: FunctionKind::Scene(Scene {
+                values,
+                ..Scene::default()
+            }),
+            folder: None,
+        };
+        let at = |id| Target::Fixture { id: FixtureId(id) };
+        s.functions = vec![
+            scene(
+                1,
+                vec![
+                    SceneValue {
+                        target: at(1),
+                        value: ValueSource::Explicit {
+                            value: AttributeValue::Intensity { level: 1.0 },
+                        },
+                    },
+                    SceneValue {
+                        target: at(1),
+                        value: ValueSource::Explicit {
+                            value: AttributeValue::Color { color: blue },
+                        },
+                    },
+                ],
+            ),
+            scene(
+                2,
+                vec![SceneValue {
+                    target: at(1),
+                    value: ValueSource::Palette { id: PaletteId(1) },
+                }],
+            ),
+            scene(
+                3,
+                vec![SceneValue {
+                    target: at(2),
+                    value: ValueSource::Palette { id: PaletteId(1) },
+                }],
+            ),
+            scene(4, vec![]),
+        ];
+        assert_eq!(function_color(&s, FunctionId(1)), Some(blue));
+        assert_eq!(function_color(&s, FunctionId(2)), Some(red));
+        // Fixture 2 has its own palette value.
+        assert_eq!(function_color(&s, FunctionId(3)), Some(blue));
+        assert_eq!(function_color(&s, FunctionId(4)), None);
+        assert_eq!(function_color(&s, FunctionId(9)), None);
     }
 }

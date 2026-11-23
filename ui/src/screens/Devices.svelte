@@ -1,6 +1,7 @@
 <script lang="ts">
   import { app, client, run, notify } from '../lib/app.svelte';
-  import { describeInputMessage as describeMsg, nextId } from '../lib/show';
+  import { LearnCancelled } from '../lib/client';
+  import { describeInputMessage as describeMsg, describeInputTarget, mappingConflicts, nextId } from '../lib/show';
   import type { InputDeviceConfig, InputMapping, InputProfileInfo, InputTarget, LedBehavior, OutputKind, SerialPortInfo, Universe } from '../lib/protocol';
 
   const show = $derived(app.s.show!);
@@ -61,10 +62,7 @@
     return { type: key } as InputTarget;
   }
 
-  function describeTarget(t: InputTarget) {
-    if (t.type === 'widget') return `Widget "${allWidgets().find((w) => w.id === t.id)?.props.label ?? t.id}"`;
-    return t.type.replace('_', ' ');
-  }
+  const describeTarget = (t: InputTarget) => describeInputTarget(show, t);
 
   function allWidgets() {
     const out: { id: number; props: { label: string } }[] = [];
@@ -75,15 +73,42 @@
     return out;
   }
 
+  let learnAbort: AbortController | null = null;
+
   async function learn() {
     learning = true;
+    learnAbort = new AbortController();
     notify('Move a control on the controller…', 'info');
-    const l = await client.learn();
-    learning = false;
-    const mapping: InputMapping = { id: nextId(show.input_mappings), device: l.device, message: l.message, target: targetFromKey(learnTarget) };
-    await run({ type: 'set_input_mappings', mappings: [...show.input_mappings, mapping] });
-    notify(`Mapped ${describeMsg(l.message)} on ${l.device}`, 'info');
+    try {
+      const l = await client.learn({ signal: learnAbort.signal });
+      const target = targetFromKey(learnTarget);
+      const latest = app.s.show ?? show;
+      const { same, others } = mappingConflicts(latest.input_mappings, l.device, l.message, target);
+      if (same) {
+        notify(`${describeMsg(l.message)} is already mapped to ${describeTarget(target)}`, 'warning');
+        return;
+      }
+      if (others.length) {
+        const used = others.map((m) => describeTarget(m.target)).join(', ');
+        const ok = window.confirm(
+          `${describeMsg(l.message)} on ${l.device} is already mapped to ${used}.\n\nMap it to ${describeTarget(target)} too? The control will drive both, and its LED shows the first mapping only.`,
+        );
+        if (!ok) return;
+      }
+      const mapping: InputMapping = { id: nextId(latest.input_mappings), device: l.device, message: l.message, target };
+      await run({ type: 'set_input_mappings', mappings: [...latest.input_mappings, mapping] });
+      notify(`Mapped ${describeMsg(l.message)} on ${l.device}`, 'info');
+    } catch (e) {
+      if (!(e instanceof LearnCancelled)) throw e;
+      if (e.reason !== 'cancelled') notify(`MIDI learn stopped: ${e.message}`, 'warning');
+    } finally {
+      learning = false;
+      learnAbort = null;
+    }
   }
+
+  // Leaving the screen ends a pending learn.
+  $effect(() => () => learnAbort?.abort());
 
   let newOscName = $state('OSC');
   let newOscPort = $state(9000);
@@ -193,7 +218,12 @@
         <option value="tap_tempo">Tap tempo</option>
         {#each allWidgets() as w (w.id)}<option value={`w:${w.id}`}>Widget "{w.props.label}"</option>{/each}
       </select>
-      <button class="primary" disabled={learning} onclick={learn}>{learning ? 'Waiting for input…' : 'MIDI learn'}</button>
+      {#if learning}
+        <span class="muted">Waiting for input…</span>
+        <button onclick={() => learnAbort?.abort()}>Cancel</button>
+      {:else}
+        <button class="primary" onclick={learn}>MIDI learn</button>
+      {/if}
     </div>
   </section>
 </div>

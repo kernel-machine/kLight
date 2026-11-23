@@ -73,6 +73,21 @@ export function describeError(e: ApiError): string {
   }
 }
 
+/** MIDI learn ended without a control being moved (cancelled, timed out, disconnected). */
+export class LearnCancelled extends Error {
+  constructor(readonly reason: 'cancelled' | 'timeout' | 'disconnected') {
+    super(reason === 'timeout' ? 'No control was moved' : reason === 'disconnected' ? 'Connection lost' : 'MIDI learn cancelled');
+  }
+}
+
+/** How long MIDI learn waits for a control by default. */
+export const LEARN_TIMEOUT_MS = 30_000;
+
+interface LearnWaiter {
+  resolve: (l: { device: string; message: InputMessage }) => void;
+  reject: (e: LearnCancelled) => void;
+}
+
 interface Pending {
   resolve: (warnings: string[]) => void;
   reject: (e: CommandFailed) => void;
@@ -93,7 +108,7 @@ export class EngineClient {
   private nextId = 1;
   private pending = new Map<number, Pending>();
   private listeners = new Set<(s: ClientState) => void>();
-  private learnWaiters: Array<(l: { device: string; message: InputMessage }) => void> = [];
+  private learnWaiters: LearnWaiter[] = [];
   /** Version of the show we hold (from snapshots and show updates). */
   private showSeq = 0;
   /** Acknowledged commands waiting for the show version that includes them. */
@@ -150,6 +165,7 @@ export class EngineClient {
       this.state.permission = null;
       for (const p of this.pending.values()) p.reject(new CommandFailed({ kind: 'busy' }));
       this.pending.clear();
+      for (const w of this.learnWaiters.splice(0)) w.reject(new LearnCancelled('disconnected'));
       this.emit();
       if (!this.closed) {
         this.scheduler(() => this.connect(), this.retryMs);
@@ -226,7 +242,7 @@ export class EngineClient {
       }
       case 'learned': {
         const w = this.learnWaiters.shift();
-        w?.({ device: msg.device, message: msg.message });
+        w?.resolve({ device: msg.device, message: msg.message });
         return;
       }
       default:
@@ -299,9 +315,27 @@ export class EngineClient {
     this.raw({ type: 'subscribe_dmx', universes: this.dmxSubscription });
   }
 
-  learn(): Promise<{ device: string; message: InputMessage }> {
-    return new Promise((resolve) => {
-      this.learnWaiters.push(resolve);
+  /**
+   * Resolves with the next control moved on any controller. Rejects with
+   * `LearnCancelled` when `signal` aborts, after `timeoutMs`, or when the
+   * connection drops, so a caller never waits forever.
+   */
+  learn(opts: { signal?: AbortSignal; timeoutMs?: number } = {}): Promise<{ device: string; message: InputMessage }> {
+    return new Promise((resolve, reject) => {
+      const stop = (reason: LearnCancelled['reason']) => {
+        const i = this.learnWaiters.indexOf(waiter);
+        if (i < 0) return; // already answered
+        this.learnWaiters.splice(i, 1);
+        reject(new LearnCancelled(reason));
+      };
+      const waiter: LearnWaiter = { resolve, reject };
+      if (opts.signal?.aborted) {
+        reject(new LearnCancelled('cancelled'));
+        return;
+      }
+      this.learnWaiters.push(waiter);
+      opts.signal?.addEventListener('abort', () => stop('cancelled'), { once: true });
+      this.scheduler(() => stop('timeout'), opts.timeoutMs ?? LEARN_TIMEOUT_MS);
       this.raw({ type: 'midi_learn' });
     });
   }

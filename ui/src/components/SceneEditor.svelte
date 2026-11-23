@@ -3,6 +3,7 @@
   import { app, run } from '../lib/app.svelte';
   import ScenePreview from './ScenePreview.svelte';
   import { capabilityNames, colorToHex, describeTarget, describeValue, groupFixtures, hexToColor } from '../lib/show';
+  import { sceneValueColor } from '../lib/core';
   import type { AttributeValue, FanMode, Function as Fn, Scene, SceneValue, Target, ValueSource } from '../lib/protocol';
 
   let { f, scene }: { f: Fn; scene: Scene } = $props();
@@ -127,12 +128,10 @@
     }
   }
 
-  /** Color a value sets (explicit, or from a color palette), as a CSS color. */
-  function swatch(sv: SceneValue): string | null {
-    if (sv.value.type === 'explicit') return sv.value.value.type === 'color' ? colorToHex(sv.value.value.color) : null;
-    const id = sv.value.id;
-    const first = show.palettes.find((p) => p.id === id)?.generic.find((v) => v.type === 'color');
-    return first?.type === 'color' ? colorToHex(first.color) : null;
+  /** Color the i-th value sets (explicit, or from a color palette), as a CSS color; from the core. */
+  function swatch(i: number): string | null {
+    const c = sceneValueColor(show, f.id, i);
+    return c ? colorToHex(c) : null;
   }
 
   const describe = (sv: SceneValue) =>
@@ -147,10 +146,8 @@
     {#each scene.values as sv, i (i)}
       <tr>
         <td>{describeTarget(show, sv.target)}</td>
-        <td class="muted">
-          {#if swatch(sv) !== null}<span class="swatch" style="background:{swatch(sv)}" title={swatch(sv)}></span>{/if}
-          {describe(sv)}
-        </td>
+        <!-- No whitespace around the text: the cell reads exactly as the value. -->
+        <td class="muted">{#if swatch(i) !== null}<span class="swatch" style="background:{swatch(i)}" title={swatch(i)}></span>{/if}{describe(sv)}</td>
         <td class="actions">
           <button onclick={() => load(sv)}>Edit</button>
           <button onclick={() => removeValue(sv)}>×</button>

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { beatFlash } from './beat';
-import { channelMap, colorSequence, frameFromFunctions, functionsUnder, functionColor, groupFixtureIds, groupRows, groupWithFixtures, conflictsWith, maxSequenceColors, nextFreeAddress, parseTime, hexToColor, colorToHex } from './show';
-import type { Show } from './protocol';
+import { channelMap, colorSequence, frameFromFunctions, frameKind, functionsUnder, functionColor, groupFixtureIds, groupRows, groupWithFixtures, groupsWithoutFixtures, conflictsWith, mappingConflicts, maxSequenceColors, nextFreeAddress, parseTime, hexToColor, colorToHex } from './show';
+import { sceneValueColor } from './core';
+import type { InputMapping, Show, Widget } from './protocol';
 
 const def = {
   manufacturer: 'G',
@@ -115,36 +116,44 @@ describe('color sequence (from the core)', () => {
   });
 });
 
-describe('functionColor', () => {
-  const scene = (values: unknown[]) => ({ id: 1, name: 'S', folder: null, kind: { type: 'scene', values, timing: {}, spread: { type: 'none' }, attribute_timing: [] } }) as never;
-  const target = { type: 'group', id: 1 } as const;
+const ZERO = { ms: 0 };
+/** A scene function for a full show (the core reads the whole show). */
+const sceneFn = (id: number, name: string, values: unknown[]) =>
+  ({ id, name, folder: null, kind: { type: 'scene', values, timing: { delay: ZERO, fade_in: ZERO, fade_out: ZERO }, spread: { type: 'none' }, attribute_timing: [] } }) as never;
+
+describe('functionColor (from the core)', () => {
+  const target = { type: 'fixture', id: 1 } as const;
   const red = { r: 1, g: 0, b: 0 };
-  it('finds the color of a scene, null otherwise', () => {
-    const s = {} as Show;
-    const withColor = scene([
-      { target, value: { type: 'explicit', value: { type: 'intensity', level: 1 } } },
-      { target, value: { type: 'explicit', value: { type: 'color', color: red } } },
-    ]);
-    expect(functionColor(s, withColor)).toEqual(red);
-    expect(functionColor(s, scene([{ target, value: { type: 'explicit', value: { type: 'intensity', level: 1 } } }]))).toBeNull();
+  const blue = { r: 0, g: 0, b: 1 };
+  it('finds the color of a scene, palettes included, null otherwise', () => {
+    const s: Show = {
+      ...show([1, 10]),
+      palettes: [{ id: 5, name: 'P', kind: 'Color', generic: [{ type: 'color', color: red }], per_fixture: [{ fixture: 2, values: [{ type: 'color', color: blue }] }] }],
+      functions: [
+        sceneFn(1, 'A', [
+          { target, value: { type: 'explicit', value: { type: 'intensity', level: 1 } } },
+          { target, value: { type: 'explicit', value: { type: 'color', color: red } } },
+        ]),
+        sceneFn(2, 'B', [{ target, value: { type: 'explicit', value: { type: 'intensity', level: 1 } } }]),
+        // A palette with a value of its own for fixture 2 (the old TypeScript
+        // version only looked at the generic value).
+        sceneFn(3, 'C', [{ target: { type: 'fixture', id: 2 }, value: { type: 'palette', id: 5 } }]),
+      ],
+    };
+    expect(functionColor(s, s.functions[0])).toEqual(red);
+    expect(functionColor(s, s.functions[1])).toBeNull();
+    expect(functionColor(s, s.functions[2])).toEqual(blue);
     expect(functionColor(s, undefined)).toBeNull();
+    expect(sceneValueColor(s, 1, 0)).toBeNull();
+    expect(sceneValueColor(s, 1, 1)).toEqual(red);
+    expect(sceneValueColor(s, 3, 0)).toEqual(blue);
   });
 });
 
 describe('frameFromFunctions', () => {
-  const sc = (id: number, name: string, color?: { r: number; g: number; b: number }) => ({
-    id,
-    name,
-    folder: null,
-    kind: {
-      type: 'scene',
-      values: color ? [{ target: { type: 'group', id: 1 }, value: { type: 'explicit', value: { type: 'color', color } } }] : [],
-      timing: {},
-      spread: { type: 'none' },
-      attribute_timing: [],
-    },
-  });
-  const s = { functions: [sc(1, 'Red', { r: 1, g: 0, b: 0 }), sc(2, 'Plain'), sc(3, 'Blue', { r: 0, g: 0, b: 1 })], palettes: [] } as unknown as Show;
+  const sc = (id: number, name: string, color?: { r: number; g: number; b: number }) =>
+    sceneFn(id, name, color ? [{ target: { type: 'fixture', id: 1 }, value: { type: 'explicit', value: { type: 'color', color } } }] : []);
+  const s: Show = { ...show([1]), functions: [sc(1, 'Red', { r: 1, g: 0, b: 0 }), sc(2, 'Plain'), sc(3, 'Blue', { r: 0, g: 0, b: 1 })] };
 
   it('makes one bound button per function, in the given order', () => {
     const w = frameFromFunctions(s, [3, 1, 2], { solo: false, name: 'F', firstId: 10, x: 5, y: 6 });
@@ -207,6 +216,46 @@ describe('groupRows', () => {
     };
     expect(groupRows(s, g, 1).map((r) => [r.fixture.id, r.head])).toEqual([[3, null], [1, null]]);
     expect(groupRows(s, g, 2)).toEqual([]);
+  });
+});
+
+describe('groupsWithoutFixtures', () => {
+  // Regression: a group whose last member was removed vanished from the
+  // fixture list and could no longer be selected or deleted.
+  it('finds empty groups and groups whose fixtures are gone', () => {
+    const s = show([1]);
+    s.groups = [
+      { id: 1, name: 'Full', members: [{ fixture: 1, head: 0, grid: null }], grid_width: 1, grid_height: 1 },
+      { id: 2, name: 'Empty', members: [], grid_width: 1, grid_height: 1 },
+      { id: 3, name: 'Gone', members: [{ fixture: 9, head: 0, grid: null }], grid_width: 1, grid_height: 1 },
+    ];
+    expect(groupsWithoutFixtures(s).map((g) => g.id)).toEqual([2, 3]);
+  });
+});
+
+describe('mappingConflicts', () => {
+  const note = { type: 'midi_note', channel: 0, note: 36 } as const;
+  const mappings: InputMapping[] = [
+    { id: 1, device: 'pad', message: note, target: { type: 'widget', id: 4 } },
+    { id: 2, device: 'pad', message: { ...note, note: 37 }, target: { type: 'widget', id: 5 } },
+    { id: 3, device: 'other', message: note, target: { type: 'blackout' } },
+  ];
+  it('tells a repeat from a control already used elsewhere', () => {
+    expect(mappingConflicts(mappings, 'pad', note, { type: 'widget', id: 4 })).toEqual({ same: true, others: [] });
+    expect(mappingConflicts(mappings, 'pad', note, { type: 'widget', id: 5 }).others.map((x) => x.id)).toEqual([1]);
+    expect(mappingConflicts(mappings, 'pad', { ...note, note: 40 }, { type: 'tap_tempo' })).toEqual({ same: false, others: [] });
+  });
+});
+
+describe('frameKind', () => {
+  const child = (page: number): Widget => ({ id: page + 10, kind: { type: 'label' }, props: { x: 0, y: 0, width: 1, height: 1, label: '', color: null, page }, function: null, children: [] });
+  const frame = (kind: Widget['kind'], pages: number[]): Widget => ({ ...child(0), id: 1, kind, children: pages.map(child) });
+  // Regression: switching to solo frame and back reset a frame to one page.
+  it('keeps the pages a frame needs', () => {
+    expect(frameKind(frame({ type: 'frame', pages: 3 }, [0, 2]), 'solo_frame')).toEqual({ type: 'solo_frame' });
+    expect(frameKind(frame({ type: 'solo_frame' }, [0, 2]), 'frame')).toEqual({ type: 'frame', pages: 3 });
+    expect(frameKind(frame({ type: 'frame', pages: 4 }, [0]), 'frame')).toEqual({ type: 'frame', pages: 4 });
+    expect(frameKind(frame({ type: 'solo_frame' }, []), 'frame')).toEqual({ type: 'frame', pages: 1 });
   });
 });
 

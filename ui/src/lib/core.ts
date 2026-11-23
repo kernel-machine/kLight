@@ -97,6 +97,20 @@ export function scenePreview(show: Show, functionId: number): FixturePreview[] {
   return p;
 }
 
+/** Color a function shows (first color its scene sets, palettes resolved as the engine does), or null. */
+export function functionColor(show: Show, functionId: number): Color | null {
+  return toColor(view(show).view.function_color(functionId));
+}
+
+/** Color the `index`-th value of a scene sets (palettes resolved as the engine does), or null. */
+export function sceneValueColor(show: Show, functionId: number, index: number): Color | null {
+  return toColor(view(show).view.scene_value_color(functionId, index));
+}
+
+function toColor(c: Float32Array | undefined): Color | null {
+  return c && c.length >= 3 ? { r: c[0]!, g: c[1]!, b: c[2]! } : null;
+}
+
 /** Grid of a group as matrix effects use it. */
 export function groupLayout(show: Show, group: FixtureGroup | undefined): GroupLayout {
   const json = group ? view(show).view.group_layout(group.id) : undefined;

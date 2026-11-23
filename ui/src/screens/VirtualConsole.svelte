@@ -1,6 +1,7 @@
 <script lang="ts">
   import { app, client, notify, run } from '../lib/app.svelte';
-  import { colorToHex, describeInputMessage, frameFromFunctions, functionColor, nextId } from '../lib/show';
+  import { LearnCancelled } from '../lib/client';
+  import { colorToHex, describeInputMessage, describeInputTarget, frameFromFunctions, frameKind, functionColor, mappingConflicts, nextId } from '../lib/show';
   import type { ButtonAction, SliderMode, VirtualConsole, Widget, WidgetKind } from '../lib/protocol';
   import VcWidget from '../components/VcWidget.svelte';
   import FrameFromScenes from '../components/FrameFromScenes.svelte';
@@ -52,30 +53,46 @@
   // ---- MIDI mapping of the selected widget (same mappings as the Devices screen)
   const mappingsOf = (id: number) => show.input_mappings.filter((m) => m.target.type === 'widget' && m.target.id === id);
   let learningFor = $state<number | null>(null);
+  let learnAbort: AbortController | null = null;
 
   async function learnMidi(w: Widget) {
     if (learningFor !== null) return;
     learningFor = w.id;
+    learnAbort = new AbortController();
     notify('Move or press a control on the controller…', 'info');
     try {
-      const l = await client.learn();
+      const l = await client.learn({ signal: learnAbort.signal });
       // Read the latest show: mappings may have changed while waiting.
-      const current = app.s.show?.input_mappings ?? [];
-      const duplicate = current.some(
-        (m) => m.device === l.device && JSON.stringify(m.message) === JSON.stringify(l.message) && m.target.type === 'widget' && m.target.id === w.id,
-      );
-      if (duplicate) {
+      const latest = app.s.show ?? show;
+      const current = latest.input_mappings;
+      const target = { type: 'widget', id: w.id } as const;
+      const { same, others } = mappingConflicts(current, l.device, l.message, target);
+      if (same) {
         notify('That control is already mapped to this widget', 'warning');
         return;
       }
-      const mapping = { id: nextId(current), device: l.device, message: l.message, target: { type: 'widget', id: w.id } } as const;
+      if (others.length) {
+        const used = others.map((m) => describeInputTarget(latest, m.target)).join(', ');
+        const ok = window.confirm(
+          `${describeInputMessage(l.message)} on ${l.device} is already mapped to ${used}.\n\nMap it here too? The control will drive both, and its LED shows the first mapping only.`,
+        );
+        if (!ok) return;
+      }
+      const mapping = { id: nextId(current), device: l.device, message: l.message, target };
       if (await run({ type: 'set_input_mappings', mappings: [...current, mapping] })) {
         notify(`Mapped ${describeInputMessage(l.message)} on ${l.device}`, 'info');
       }
+    } catch (e) {
+      if (!(e instanceof LearnCancelled)) throw e;
+      if (e.reason !== 'cancelled') notify(`MIDI learn stopped: ${e.message}`, 'warning');
     } finally {
       learningFor = null;
+      learnAbort = null;
     }
   }
+
+  // Leaving the screen ends a pending learn.
+  $effect(() => () => learnAbort?.abort());
 
   function unmap(mappingId: number) {
     run({ type: 'set_input_mappings', mappings: show.input_mappings.filter((m) => m.id !== mappingId) });
@@ -168,7 +185,7 @@
         </div>
         <label>Color <input type="color" value={rgbHex(w.props.color)} onchange={(e) => update(w.id, (x) => ({ ...x, props: { ...x.props, color: hexToRgb8(e.currentTarget.value) } }))} /></label>
         {#if w.kind.type === 'frame' || w.kind.type === 'solo_frame'}
-          <label>Type <select value={w.kind.type} onchange={(e) => update(w.id, (x) => ({ ...x, kind: e.currentTarget.value === 'solo_frame' ? { type: 'solo_frame' } : { type: 'frame', pages: 1 } }))}>
+          <label>Type <select value={w.kind.type} onchange={(e) => update(w.id, (x) => ({ ...x, kind: frameKind(x, e.currentTarget.value === 'solo_frame' ? 'solo_frame' : 'frame') }))}>
             <option value="frame">Frame</option><option value="solo_frame">Solo frame (one at a time)</option></select></label>
         {/if}
         {#if w.kind.type === 'button'}
@@ -195,9 +212,11 @@
             {:else}
               <span class="muted">Not mapped</span>
             {/each}
-            <button disabled={learningFor !== null} onclick={() => learnMidi(w)}>
-              {learningFor === w.id ? 'Waiting for the controller…' : 'MIDI learn'}
-            </button>
+            {#if learningFor === w.id}
+              <div class="row"><span class="grow muted">Waiting for the controller…</span><button onclick={() => learnAbort?.abort()}>Cancel</button></div>
+            {:else}
+              <button disabled={learningFor !== null} onclick={() => learnMidi(w)}>MIDI learn</button>
+            {/if}
           </div>
         {/if}
         <button class="danger" onclick={() => { saveVc(mapTree(vc.widgets, (x) => (x.id === w.id ? null : x))); selectedId = null; }}>Delete widget</button>

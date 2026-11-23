@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EngineClient, defaultUrl, type SocketLike } from './client';
+import { EngineClient, LearnCancelled, defaultUrl, type SocketLike } from './client';
 import type { ServerMessage } from './protocol';
 
 class FakeSocket implements SocketLike {
@@ -99,5 +99,34 @@ describe('EngineClient', () => {
     expect(s.sent.at(-1)).toEqual({ type: 'subscribe_dmx', universes: [1] });
     a();
     expect(s.sent.at(-1)).toEqual({ type: 'subscribe_dmx', universes: [] });
+  });
+
+  // Regression: learn waited forever if no control was moved, leaving every
+  // MIDI learn button disabled until the page was reloaded.
+  it('MIDI learn can be cancelled, times out and ends on disconnect', async () => {
+    const { c, s, scheduled } = setup();
+    const ctl = new AbortController();
+    const cancelled = c.learn({ signal: ctl.signal });
+    ctl.abort();
+    await expect(cancelled).rejects.toBeInstanceOf(LearnCancelled);
+
+    const timedOut = c.learn({ timeoutMs: 10 });
+    scheduled.at(-1)!();
+    await expect(timedOut).rejects.toMatchObject({ reason: 'timeout' });
+
+    const dropped = c.learn();
+    s.close();
+    await expect(dropped).rejects.toMatchObject({ reason: 'disconnected' });
+  });
+
+  it('MIDI learn resolves with the control moved', async () => {
+    const { c, s, scheduled } = setup();
+    const p = c.learn();
+    expect(s.sent.at(-1)).toEqual({ type: 'midi_learn' });
+    const message = { type: 'midi_note', channel: 0, note: 36 } as const;
+    s.push({ type: 'learned', seq: 1, device: 'pad', message });
+    await expect(p).resolves.toEqual({ device: 'pad', message });
+    // The timeout firing later changes nothing.
+    scheduled.at(-1)!();
   });
 });

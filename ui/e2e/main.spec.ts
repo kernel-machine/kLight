@@ -87,7 +87,12 @@ test('scene editor, movement preview, knob and DMX channel desk', async ({ page 
   await page.getByLabel('Select Dimmer 2').check();
   page.once('dialog', (d) => d.accept('Front'));
   await page.getByRole('button', { name: 'Create group' }).click();
-  await expect(page.getByRole('button', { name: 'Front (2)' })).toBeVisible();
+  // The group is a folder of the universe tree holding its fixtures, and
+  // opens its editor.
+  const front = page.getByRole('treeitem', { name: 'Group Front' });
+  await expect(front).toBeVisible();
+  await expect(front).toHaveAttribute('aria-selected', 'true');
+  await expect(front).toContainText('2');
 
   // Reorder the group by dragging heads in the matrix.
   await expect(page.getByLabel('Head Dimmer 1')).toContainText('1');
@@ -96,7 +101,7 @@ test('scene editor, movement preview, knob and DMX channel desk', async ({ page 
   await expect(page.getByLabel('Head Dimmer 1')).toContainText('2');
 
   // Settings depend on the fixture type: a dimmer has no orientation.
-  await page.locator('.tree li', { hasText: 'Dimmer 1' }).getByRole('button').click();
+  await page.locator('.tree li', { hasText: 'Dimmer 1' }).first().locator('button.fx').click();
   await expect(page.getByRole('heading', { name: 'Channels' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Orientation' })).toHaveCount(0);
 
@@ -236,3 +241,41 @@ test('functions are listed by type with nestable folders', async ({ page }) => {
   await expect(editorFolder.locator('option:checked')).toHaveText('— top level —');
 });
 
+
+// Regressions: a dropped widget flashed back to its start for one round trip
+// to the engine, and the clock widget never ticked.
+test('virtual console: a dropped widget stays put and the clock ticks', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByText('Engine: connected')).toBeVisible();
+  await page.getByRole('button', { name: 'Virtual Console' }).click();
+  const toolbar = page.locator('.toolbar');
+
+  await toolbar.getByRole('button', { name: 'Clock', exact: true }).click();
+  const clock = page.locator('.w.clock .big').last();
+  const shown = await clock.textContent();
+  await expect.poll(() => clock.textContent(), { timeout: 3000 }).not.toBe(shown);
+
+  await toolbar.getByRole('button', { name: 'Label', exact: true }).click();
+  const w = page.locator('.w.label').last();
+  const styleLeft = () => w.evaluate((el) => parseFloat((el as HTMLElement).style.left));
+  const start = await styleLeft();
+  const box = (await w.boundingBox())!;
+  await page.mouse.move(box.x + 5, box.y + 5);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 85, box.y + 5, { steps: 5 });
+  // Record where the widget is drawn on every frame from just before the drop.
+  await w.evaluate((el) => {
+    const seen: number[] = [];
+    (window as unknown as { lefts: number[] }).lefts = seen;
+    const frame = () => {
+      seen.push(el.getBoundingClientRect().left);
+      if (seen.length < 60) requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+  });
+  await page.mouse.up();
+  await page.waitForFunction(() => (window as unknown as { lefts: number[] }).lefts.length >= 60);
+  const lefts = await page.evaluate(() => (window as unknown as { lefts: number[] }).lefts);
+  expect(Math.min(...lefts)).toBeGreaterThan(box.x + 40);
+  await expect.poll(styleLeft).toBe(start + 80);
+});

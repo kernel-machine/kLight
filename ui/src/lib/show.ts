@@ -16,6 +16,9 @@ import type {
   FunctionCategory,
   FunctionFolder,
   Widget,
+  WidgetKind,
+  InputMapping,
+  InputTarget,
 } from './protocol';
 
 export const UNIVERSE_SIZE = 512;
@@ -35,7 +38,7 @@ export {
   maxSequenceColors,
   nextFreeAddress,
 } from './core';
-import { colorToHex, headCount } from './core';
+import { colorToHex, functionColor as coreFunctionColor, headCount } from './core';
 
 export function defKey(d: FixtureDefinition): string {
   return `${d.manufacturer}/${d.model}`;
@@ -91,19 +94,9 @@ export function describeValue(v: AttributeValue): string {
   }
 }
 
-/** First color a function sets (scenes only: explicit or from a color palette), or null. */
+/** Color a function shows (first color its scene sets), from the core; null if none. */
 export function functionColor(show: Show, f: Function_ | undefined): Color | null {
-  if (!f || f.kind.type !== 'scene') return null;
-  for (const sv of f.kind.values) {
-    if (sv.value.type === 'explicit') {
-      if (sv.value.value.type === 'color') return sv.value.value.color;
-    } else {
-      const id = sv.value.id;
-      const c = show.palettes.find((p) => p.id === id)?.generic.find((v) => v.type === 'color');
-      if (c?.type === 'color') return c.color;
-    }
-  }
-  return null;
+  return f ? coreFunctionColor(show, f.id) : null;
 }
 
 /** Function types in the order the FX screen lists them. */
@@ -141,6 +134,46 @@ export function describeInputMessage(m: InputMessage): string {
   if (m.type === 'midi_note') return `Note ${m.note} ch ${m.channel + 1}`;
   if (m.type === 'midi_cc') return `CC ${m.controller} ch ${m.channel + 1}`;
   return `OSC ${m.path}`;
+}
+
+/** Widgets of the virtual console, frames' children included. */
+export function allWidgets(widgets: Widget[]): Widget[] {
+  return widgets.flatMap((w) => [w, ...allWidgets(w.children)]);
+}
+
+/** What a mapping drives, e.g. 'Widget "Red"' or "Grand master". */
+export function describeInputTarget(show: Show, t: InputTarget): string {
+  if (t.type === 'widget') return `Widget "${allWidgets(show.virtual_console.widgets).find((w) => w.id === t.id)?.props.label ?? t.id}"`;
+  const label = t.type.replace(/_/g, ' ');
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+/**
+ * Where a learned control is already used: `same` if it already drives
+ * `target`, `others` = mappings of the same control to something else (its
+ * LED can show only one of them: the first).
+ */
+export function mappingConflicts(
+  mappings: InputMapping[],
+  device: string,
+  message: InputMessage,
+  target: InputTarget,
+): { same: boolean; others: InputMapping[] } {
+  const ofControl = mappings.filter((m) => m.device === device && sameJson(m.message, message));
+  return { same: ofControl.some((m) => sameJson(m.target, target)), others: ofControl.filter((m) => !sameJson(m.target, target)) };
+}
+
+/**
+ * Kind of a frame switched to `type`. A frame keeps enough pages for every
+ * child, so switching to a solo frame and back hides nothing.
+ */
+export function frameKind(w: Widget, type: 'frame' | 'solo_frame'): WidgetKind {
+  if (type === 'solo_frame') return { type: 'solo_frame' };
+  const used = Math.max(0, ...w.children.map((c) => c.props.page + 1));
+  const had = w.kind.type === 'frame' ? w.kind.pages : 1;
+  return { type: 'frame', pages: Math.max(1, had, used) };
 }
 
 export const FRAME_BUTTON = { width: 100, height: 70, gap: 10, columns: 4, header: 24 } as const;
@@ -265,6 +298,11 @@ export const FIXTURE_DRAG = 'application/x-klight-fixtures';
 /** Fixture ids of a group, each once, in grid order. */
 export function groupFixtureIds(g: FixtureGroup): number[] {
   return [...new Set(sortByGrid(g.members).map((m) => m.fixture))];
+}
+
+/** Groups with no fixture in any universe (empty, or their fixtures were deleted). */
+export function groupsWithoutFixtures(show: Show): FixtureGroup[] {
+  return show.groups.filter((g) => show.universes.every((u) => groupRows(show, g, u.id).length === 0));
 }
 
 /** A line of a group in the fixture list: a whole fixture, or one head of it. */

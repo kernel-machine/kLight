@@ -54,6 +54,18 @@ impl ShowView {
         scene_preview(&self.show, self.compiled(), FunctionId(id))
     }
 
+    pub fn function_color_of(&self, id: u32) -> Option<Color> {
+        inspect::function_color(&self.show, FunctionId(id))
+    }
+
+    pub fn scene_value_color_of(&self, id: u32, index: usize) -> Option<Color> {
+        let f = self.show.function(FunctionId(id))?;
+        let klight_model::FunctionKind::Scene(scene) = &f.kind else {
+            return None;
+        };
+        inspect::scene_value_color(&self.show, scene.values.get(index)?)
+    }
+
     pub fn group_layout_of(&self, group: u32) -> Option<GroupLayout> {
         self.show.group(GroupId(group)).map(|g| g.layout())
     }
@@ -106,6 +118,19 @@ impl ShowView {
     /// channel; undefined if the function is not a scene.
     pub fn scene_preview(&self, id: u32) -> Option<String> {
         self.scene_preview_of(id).map(|p| to_json(&p))
+    }
+
+    /// Linear RGB `[r, g, b]` of the color a function shows (first color its
+    /// scene sets), or undefined.
+    pub fn function_color(&self, id: u32) -> Option<Vec<f32>> {
+        self.function_color_of(id).map(|c| vec![c.r, c.g, c.b])
+    }
+
+    /// Linear RGB of the color the `index`-th value of a scene sets, or
+    /// undefined.
+    pub fn scene_value_color(&self, id: u32, index: u32) -> Option<Vec<f32>> {
+        self.scene_value_color_of(id, index as usize)
+            .map(|c| vec![c.r, c.g, c.b])
     }
 
     /// JSON `GroupLayout` (the grid matrix effects use), or undefined.
