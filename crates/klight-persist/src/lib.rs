@@ -8,7 +8,7 @@
 pub mod autosave;
 pub mod migrate;
 
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -109,7 +109,7 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), PersistError> {
 fn sync_dir(dir: &Path) {
     #[cfg(unix)]
     {
-        match File::open(dir).and_then(|d| d.sync_all()) {
+        match fs::File::open(dir).and_then(|d| d.sync_all()) {
             Ok(()) => {}
             Err(e) => tracing::warn!("fsync of {} failed: {e}", dir.display()),
         }
@@ -117,7 +117,6 @@ fn sync_dir(dir: &Path) {
     #[cfg(not(unix))]
     {
         let _ = dir;
-        let _ = File::open;
     }
 }
 
