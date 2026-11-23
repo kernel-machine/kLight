@@ -1,7 +1,7 @@
 //! Controller feedback: widget state and color rendered as exact bytes for
 //! a controller profile, sent as differences with a per-device rate limit.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use klight_fixtures::qxi::InputProfileDef;
 use klight_model::input_map::{InputMessage, InputTarget, LedBehavior};
@@ -33,7 +33,15 @@ pub enum WidgetState {
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct PaletteEntry {
     pub value: u8,
-    pub color: String,
+    /// Parsed once when the profile is loaded (`#rrggbb` in files).
+    #[serde(deserialize_with = "hex_color")]
+    pub color: Rgb8,
+}
+
+fn hex_color<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Rgb8, D::Error> {
+    let s = String::deserialize(d)?;
+    Rgb8::parse_hex(&s)
+        .ok_or_else(|| serde::de::Error::custom(format!("invalid color {s:?}, expected #rrggbb")))
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -170,10 +178,8 @@ impl ControllerProfile {
         let p: ControllerProfile =
             toml::from_str(text).map_err(|e| ProfileError::Invalid(e.to_string()))?;
         if let ProfileKind::Palette { colors } = &p.kind {
-            if colors.is_empty() || colors.iter().any(|c| Rgb8::parse_hex(&c.color).is_none()) {
-                return Err(ProfileError::Invalid(
-                    "palette needs valid #rrggbb colors".into(),
-                ));
+            if colors.is_empty() {
+                return Err(ProfileError::Invalid("palette needs colors".into()));
             }
         }
         if let ProfileKind::RgbSysex { template, .. } = &p.kind {
@@ -210,7 +216,7 @@ impl ControllerProfile {
                     // QLC+ stores LED values on its 0-255 scale; MIDI is 0-127.
                     .map(|c| PaletteEntry {
                         value: c.value / 2,
-                        color: format!("#{:02x}{:02x}{:02x}", c.rgb.r, c.rgb.g, c.rgb.b),
+                        color: c.rgb,
                     })
                     .collect(),
             }
@@ -332,17 +338,7 @@ impl ControllerProfile {
         match &self.kind {
             ProfileKind::None => None,
             ProfileKind::OnOff { on, off } => Some(msg(if lit.is_some() { *on } else { *off })),
-            ProfileKind::Palette { colors } => {
-                let target = scaled;
-                let best = colors
-                    .iter()
-                    .filter_map(|c| Some((c.value, Rgb8::parse_hex(&c.color)?)))
-                    .min_by(|a, b| {
-                        perceptual_distance(a.1, target)
-                            .total_cmp(&perceptual_distance(b.1, target))
-                    })?;
-                Some(msg(best.0))
-            }
+            ProfileKind::Palette { colors } => Some(msg(nearest_value(colors, scaled)?)),
             ProfileKind::RgbSysex { template, max } => {
                 let s = |c: u8| u8::try_from(u16::from(c) * u16::from(*max) / 255).unwrap_or(*max);
                 parse_template(template, index, s(scaled.r), s(scaled.g), s(scaled.b))
@@ -455,11 +451,10 @@ impl ControllerProfile {
 fn nearest_value(colors: &[PaletteEntry], target: Rgb8) -> Option<u8> {
     colors
         .iter()
-        .filter_map(|c| Some((c.value, Rgb8::parse_hex(&c.color)?)))
         .min_by(|a, b| {
-            perceptual_distance(a.1, target).total_cmp(&perceptual_distance(b.1, target))
+            perceptual_distance(a.color, target).total_cmp(&perceptual_distance(b.color, target))
         })
-        .map(|(value, _)| value)
+        .map(|c| c.value)
 }
 
 fn scale(c: Rgb8, f: f32) -> Rgb8 {
@@ -561,9 +556,11 @@ pub struct FeedbackTracker {
 
 impl FeedbackTracker {
     /// Forget what was sent: the next update re-sends everything (device
-    /// reconnected, engine restarted).
+    /// reconnected, engine restarted). The controls that had an LED state are
+    /// still remembered, so the ones no longer mapped are switched off.
     pub fn resync(&mut self) {
-        self.last.clear();
+        // Bytes are never empty, so every mapped control looks changed.
+        self.last.values_mut().for_each(Vec::clear);
         self.clear_queue = None;
     }
 
@@ -586,7 +583,13 @@ impl FeedbackTracker {
                 inactive: d.feedback_inactive,
             })
             .unwrap_or_default();
+        // A control mapped more than once shows its first mapping only;
+        // rendering both would flip the LED (and send twice) on every update.
+        let mut rendered: BTreeSet<&InputMessage> = BTreeSet::new();
         for m in show.input_mappings.iter().filter(|m| m.device == device) {
+            if matches!(m.target, InputTarget::GrandMaster) || !rendered.insert(&m.message) {
+                continue;
+            }
             let (state, color) = match m.target {
                 InputTarget::Widget { id } => (
                     widget_state(show, rt, id, time.beat),
@@ -969,6 +972,111 @@ kind = \"on_off\"
             vec![vec![0x90, 11, 0]]
         );
         assert!(tracker.update(&show, &rt, "pad", &mk2, at, 100).is_empty());
+    }
+
+    fn on_off() -> ControllerProfile {
+        ControllerProfile::from_toml(
+            "name = \"x\"
+kind = \"on_off\"
+",
+        )
+        .unwrap()
+    }
+
+    fn map(
+        id: u32,
+        message: InputMessage,
+        target: InputTarget,
+    ) -> klight_model::input_map::InputMapping {
+        klight_model::input_map::InputMapping {
+            id: klight_model::MappingId(id),
+            device: "pad".into(),
+            message,
+            target,
+        }
+    }
+
+    /// Regression: the input loop resyncs on every show change, and removing
+    /// a mapping is a show change. The resync forgot which LEDs were lit, so
+    /// a profile without a list of LED controls never darkened the pad.
+    #[test]
+    fn unmapped_control_is_switched_off_across_a_resync() {
+        let p = on_off();
+        let mut show = Show::new("t");
+        show.input_mappings = vec![map(1, NOTE, InputTarget::Blackout)];
+        let mut rt = RuntimeSnapshot::default();
+        rt.state.blackout = true;
+        let at = FeedbackTime::default();
+        let mut tracker = FeedbackTracker::default();
+        assert_eq!(
+            tracker.update(&show, &rt, "pad", &p, at, 100),
+            vec![vec![0x90, 36, 127]]
+        );
+        show.input_mappings.clear();
+        tracker.resync();
+        assert_eq!(
+            tracker.update(&show, &rt, "pad", &p, at, 100),
+            vec![vec![0x90, 36, 0]]
+        );
+        assert!(tracker.update(&show, &rt, "pad", &p, at, 100).is_empty());
+    }
+
+    #[test]
+    fn resync_resends_mapped_leds() {
+        let p = on_off();
+        let mut show = Show::new("t");
+        show.input_mappings = vec![map(1, NOTE, InputTarget::Blackout)];
+        let rt = RuntimeSnapshot::default();
+        let at = FeedbackTime::default();
+        let mut tracker = FeedbackTracker::default();
+        assert_eq!(tracker.update(&show, &rt, "pad", &p, at, 100).len(), 1);
+        assert!(tracker.update(&show, &rt, "pad", &p, at, 100).is_empty());
+        tracker.resync();
+        assert_eq!(
+            tracker.update(&show, &rt, "pad", &p, at, 100),
+            vec![vec![0x90, 36, 0]]
+        );
+    }
+
+    /// Regression: one control mapped to two targets in different states made
+    /// the LED flip between them and sent two messages on every update.
+    #[test]
+    fn control_mapped_twice_shows_its_first_mapping_only() {
+        let p = on_off();
+        let mut show = Show::new("t");
+        show.input_mappings = vec![
+            map(1, NOTE, InputTarget::Blackout),
+            map(2, NOTE, InputTarget::TapTempo),
+        ];
+        let mut rt = RuntimeSnapshot::default();
+        rt.state.blackout = true;
+        rt.state.tempo.bpm = 120.0;
+        rt.state.tempo.beats_per_bar = 4;
+        // Mid-beat: tap tempo would be dark, blackout is lit.
+        let at = FeedbackTime {
+            blink_on: false,
+            beat: 8.5,
+        };
+        let mut tracker = FeedbackTracker::default();
+        assert_eq!(
+            tracker.update(&show, &rt, "pad", &p, at, 100),
+            vec![vec![0x90, 36, 127]]
+        );
+        assert!(tracker.update(&show, &rt, "pad", &p, at, 100).is_empty());
+    }
+
+    #[test]
+    fn palette_colors_are_validated_when_loaded() {
+        let bad = "name = \"p\"
+kind = \"palette\"
+colors = [ { value = 1, color = \"red\" } ]
+";
+        assert!(ControllerProfile::from_toml(bad).is_err());
+        let empty = "name = \"p\"
+kind = \"palette\"
+colors = []
+";
+        assert!(ControllerProfile::from_toml(empty).is_err());
     }
 
     #[test]

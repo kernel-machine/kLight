@@ -74,7 +74,8 @@ struct Shared {
     /// Messages received per device (survives reconnects).
     events: Mutex<BTreeMap<String, u64>>,
     learn: Mutex<Option<LearnReply>>,
-    profiles: Mutex<BTreeMap<String, ControllerProfile>>,
+    /// Shared so the feedback loop can use it without copying every profile.
+    profiles: Mutex<Arc<BTreeMap<String, ControllerProfile>>>,
     #[cfg(feature = "midi")]
     outputs: Mutex<BTreeMap<String, midir::MidiOutputConnection>>,
     bridges: Mutex<BTreeMap<String, ClientId>>,
@@ -96,7 +97,7 @@ impl InputManager {
         let (tx, rx) = crossbeam_channel::bounded::<Raw>(4096);
         let shared = Arc::new(Shared::default());
         if let Ok(mut p) = shared.profiles.lock() {
-            *p = profiles;
+            *p = Arc::new(profiles);
         }
         let mut threads = Vec::new();
         {
@@ -251,7 +252,6 @@ fn mapper_loop<H: InputHost + ?Sized>(
     let mut mapper = Mapper::new();
     let mut feedback: BTreeMap<String, FeedbackTracker> = BTreeMap::new();
     let mut last_feedback = Instant::now();
-    let mut last_show: Option<Arc<Show>> = None;
     let start = Instant::now();
     while !stop.load(Ordering::Relaxed) {
         match rx.recv_timeout(Duration::from_millis(20)) {
@@ -347,17 +347,12 @@ fn mapper_loop<H: InputHost + ?Sized>(
             let rt = host.runtime();
             let blink_on = (start.elapsed().as_millis() / 250).is_multiple_of(2);
             let beat = host.beat();
-            let show_changed = last_show.as_ref().is_none_or(|s| !Arc::ptr_eq(s, &show));
-            if show_changed {
-                for f in feedback.values_mut() {
-                    f.resync();
-                }
-                last_show = Some(show.clone());
-            }
+            // A show change needs no resync: only differences are sent, and
+            // controls that lost their mapping are darkened by the tracker.
             let profiles = shared
                 .profiles
                 .lock()
-                .map(|p| p.clone())
+                .map(|p| Arc::clone(&p))
                 .unwrap_or_default();
             for dev in &show.input_devices {
                 let Some(profile) = dev.profile.as_ref().and_then(|p| profiles.get(p)) else {

@@ -72,17 +72,21 @@ pub struct SoftTakeover {
     last_input: Option<f32>,
     /// Target value seen at the previous event.
     last_seen: Option<f32>,
-    /// Values sent since engaging. The target value reaches us through a
-    /// snapshot published after the command is applied, so it lags behind
-    /// what was sent while the control moves fast.
+    /// Values sent that no snapshot has shown yet (plus the last one shown).
+    /// The target value reaches us through a snapshot published after the
+    /// command is applied, so it lags behind what was sent while the control
+    /// moves fast. Snapshots show the sent values in order, so everything
+    /// before the value a snapshot shows can never show up again and is
+    /// dropped: an old value set again from elsewhere is not mistaken for
+    /// ours.
     recent_sent: VecDeque<f32>,
 }
 
 /// Values closer than this count as "caught".
 pub const TAKEOVER_TOLERANCE: f32 = 2.0 / 127.0;
 
-/// Values we sent are copied exactly, so matching them needs no tolerance
-/// beyond float noise.
+/// Values we sent come back through the engine's 16-bit levels, so matching
+/// them needs no tolerance beyond that quantisation (< 1e-5).
 const SENT_MATCH: f32 = 1e-4;
 
 /// How many sent values are remembered to recognise a lagging snapshot.
@@ -97,13 +101,20 @@ impl SoftTakeover {
             let changed = self
                 .last_seen
                 .is_some_and(|seen| (seen - current).abs() > SENT_MATCH);
-            let ours = self
-                .recent_sent
-                .iter()
-                .any(|sent| (sent - current).abs() <= SENT_MATCH);
-            if changed && !ours {
-                self.engaged = false;
-                self.recent_sent.clear();
+            if changed {
+                match self
+                    .recent_sent
+                    .iter()
+                    .position(|sent| (sent - current).abs() <= SENT_MATCH)
+                {
+                    Some(shown) => {
+                        self.recent_sent.drain(..shown);
+                    }
+                    None => {
+                        self.engaged = false;
+                        self.recent_sent.clear();
+                    }
+                }
             }
         }
         if !self.engaged {
@@ -271,6 +282,46 @@ mod tests {
             }
             // Back to the top, still lagging.
             assert_eq!(st.feed(1.0, 1.0), Some(1.0));
+        }
+    }
+
+    /// Regression: after a full sweep every common value had been sent, so a
+    /// value set from the UI looked like ours and the fader stayed engaged,
+    /// making the target jump on the next move.
+    #[test]
+    fn soft_takeover_lets_go_after_a_sweep_when_set_elsewhere() {
+        let mut st = SoftTakeover::default();
+        let mut seen = 0.0;
+        let sweep = (0..=127).chain((51..127).rev()).map(|i| i as f32 / 127.0);
+        for input in sweep {
+            assert_eq!(st.feed(input, seen), Some(input));
+            seen = input;
+        }
+        // Fader parked at 51/127; the operator sets full from the UI.
+        assert_eq!(st.feed(50.0 / 127.0, 1.0), None);
+    }
+
+    /// A fader reversing while snapshots lag sends the same value twice; the
+    /// older one being shown must not discard the values sent after it.
+    #[test]
+    fn soft_takeover_survives_reversal_with_lag() {
+        let mut st = SoftTakeover::default();
+        assert_eq!(st.feed(0.5, 0.5), Some(0.5));
+        let sent = [0.51_f32, 0.52, 0.51, 0.5, 0.51];
+        let shown = [0.5_f32, 0.5, 0.51, 0.52, 0.51];
+        for (input, current) in sent.into_iter().zip(shown) {
+            assert_eq!(st.feed(input, current), Some(input), "{input} {current}");
+        }
+    }
+
+    /// The engine stores levels in 16 bits; what it reports back must still
+    /// match every value a 7-bit control sends.
+    #[test]
+    fn engine_level_quantisation_matches_sent_values() {
+        for i in 0..=127_u8 {
+            let sent = f32::from(i) / 127.0;
+            let back = f32::from(klight_fixtures::convert::unit_to16(sent)) / 65535.0;
+            assert!((back - sent).abs() <= SENT_MATCH, "{i}");
         }
     }
 
