@@ -333,6 +333,18 @@ fn run(args: Args) -> Result<(), String> {
         })),
         ..api_hooks
     };
+    match &args.ui_dir {
+        None => tracing::warn!(
+            "no --ui directory given: the web UI will not be served (HTTP 404 on /). \
+             Build it with `cd ui && npm run build` and pass `--ui ui/dist`"
+        ),
+        Some(dir) if !dir.join("index.html").is_file() => tracing::warn!(
+            "--ui {} has no index.html: the web UI will not be served. \
+             Build it with `cd ui && npm run build`",
+            dir.display()
+        ),
+        Some(_) => {}
+    }
     let api_config = ApiConfig {
         bind: args.bind,
         static_dir: args.ui_dir.clone(),
