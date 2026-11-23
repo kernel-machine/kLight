@@ -10,6 +10,12 @@ import type {
   AttributeValue,
   Target,
   Attribute,
+  Color,
+  Function as Function_,
+  InputMessage,
+  FunctionCategory,
+  FunctionFolder,
+  Widget,
 } from './protocol';
 
 export const UNIVERSE_SIZE = 512;
@@ -29,7 +35,7 @@ export {
   maxSequenceColors,
   nextFreeAddress,
 } from './core';
-import { colorToHex } from './core';
+import { colorToHex, headCount } from './core';
 
 export function defKey(d: FixtureDefinition): string {
   return `${d.manufacturer}/${d.model}`;
@@ -83,6 +89,111 @@ export function describeValue(v: AttributeValue): string {
     case 'raw':
       return `${v.attribute} = ${v.value}`;
   }
+}
+
+/** First color a function sets (scenes only: explicit or from a color palette), or null. */
+export function functionColor(show: Show, f: Function_ | undefined): Color | null {
+  if (!f || f.kind.type !== 'scene') return null;
+  for (const sv of f.kind.values) {
+    if (sv.value.type === 'explicit') {
+      if (sv.value.value.type === 'color') return sv.value.value.color;
+    } else {
+      const id = sv.value.id;
+      const c = show.palettes.find((p) => p.id === id)?.generic.find((v) => v.type === 'color');
+      if (c?.type === 'color') return c.color;
+    }
+  }
+  return null;
+}
+
+/** Function types in the order the FX screen lists them. */
+export const FUNCTION_CATEGORIES: Array<{ id: FunctionCategory; label: string; one: string; short: string }> = [
+  { id: 'scene', label: 'Scenes', one: 'scene', short: 'Scene' },
+  { id: 'chaser', label: 'Chasers', one: 'chaser', short: 'Chaser' },
+  { id: 'cue_list', label: 'Cue lists', one: 'cue list', short: 'Cue list' },
+  { id: 'movement_effect', label: 'Movements', one: 'movement', short: 'Movement' },
+  { id: 'matrix_effect', label: 'Matrix effects', one: 'matrix effect', short: 'Matrix' },
+];
+
+const byName = (a: { name: string }, b: { name: string }) =>
+  a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+
+/** Subfolders of a folder (or top-level folders of a type), sorted by name. */
+export function foldersIn(show: Show, category: FunctionCategory, parent: number | null): FunctionFolder[] {
+  return show.function_folders.filter((f) => f.category === category && (f.parent ?? null) === parent).sort(byName);
+}
+
+/** Functions directly in a folder (or at the top level of a type), sorted by name. */
+export function functionsIn(show: Show, category: FunctionCategory, folder: number | null): Function_[] {
+  return show.functions.filter((f) => f.kind.type === category && (f.folder ?? null) === folder).sort(byName);
+}
+
+/** Every function in a folder or a type, subfolders included, in tree order. */
+export function functionsUnder(show: Show, category: FunctionCategory, folder: number | null): Function_[] {
+  return [
+    ...functionsIn(show, category, folder),
+    ...foldersIn(show, category, folder).flatMap((f) => functionsUnder(show, category, f.id)),
+  ];
+}
+
+/** Short label of a mapped input message, e.g. "CC 7 ch 1". */
+export function describeInputMessage(m: InputMessage): string {
+  if (m.type === 'midi_note') return `Note ${m.note} ch ${m.channel + 1}`;
+  if (m.type === 'midi_cc') return `CC ${m.controller} ch ${m.channel + 1}`;
+  return `OSC ${m.path}`;
+}
+
+export const FRAME_BUTTON = { width: 100, height: 70, gap: 10, columns: 4, header: 24 } as const;
+
+/**
+ * A frame (or solo frame) holding one button per function, in the given
+ * order, laid out in a grid. Each button is bound to its function and takes
+ * its name and, for a scene that sets a color, that color. Widget ids are
+ * `firstId` for the frame and the following ones for the buttons.
+ */
+export function frameFromFunctions(
+  show: Show,
+  functionIds: number[],
+  opts: { solo: boolean; name: string; firstId: number; x: number; y: number },
+): Widget {
+  const { width, height, gap, columns, header } = FRAME_BUTTON;
+  const functions = functionIds.flatMap((id) => show.functions.filter((f) => f.id === id));
+  const cols = Math.max(1, Math.min(columns, functions.length));
+  const rows = Math.max(1, Math.ceil(functions.length / cols));
+  const children: Widget[] = functions.map((f, i) => {
+    const color = functionColor(show, f);
+    const hex = color ? colorToHex(color) : null;
+    return {
+      id: opts.firstId + 1 + i,
+      kind: { type: 'button', action: 'Toggle' },
+      props: {
+        x: gap + (i % cols) * (width + gap),
+        y: header + Math.floor(i / cols) * (height + gap),
+        width,
+        height,
+        label: f.name,
+        color: hex ? { r: parseInt(hex.slice(1, 3), 16), g: parseInt(hex.slice(3, 5), 16), b: parseInt(hex.slice(5, 7), 16) } : null,
+        page: 0,
+      },
+      function: f.id,
+      children: [],
+    };
+  });
+  return {
+    id: opts.firstId,
+    kind: opts.solo ? { type: 'solo_frame' } : { type: 'frame', pages: 1 },
+    props: {
+      x: opts.x,
+      y: opts.y,
+      width: gap + cols * (width + gap),
+      height: header + rows * (height + gap),
+      label: opts.name,
+      color: null,
+      page: 0,
+    },
+    function: null,
+    children,
+  };
 }
 
 export function describeTarget(show: Show, t: Target): string {
@@ -146,6 +257,50 @@ export function moveInGrid(g: FixtureGroup, from: number, to: { x: number; y: nu
 
 export function sortByGrid<T extends { grid: { x: number; y: number } | null }>(members: T[]): T[] {
   return [...members].sort((a, b) => (a.grid?.y ?? 1e9) - (b.grid?.y ?? 1e9) || (a.grid?.x ?? 1e9) - (b.grid?.x ?? 1e9));
+}
+
+/** Drag payload of fixture rows: a JSON array of fixture ids. */
+export const FIXTURE_DRAG = 'application/x-klight-fixtures';
+
+/** Fixture ids of a group, each once, in grid order. */
+export function groupFixtureIds(g: FixtureGroup): number[] {
+  return [...new Set(sortByGrid(g.members).map((m) => m.fixture))];
+}
+
+/** A line of a group in the fixture list: a whole fixture, or one head of it. */
+export interface GroupRow {
+  fixture: PatchedFixture;
+  /** `null` = every head of the fixture is in the group. */
+  head: number | null;
+}
+
+/**
+ * What a group lists under a universe, in grid order: each fixture once when
+ * all its heads belong to the group, otherwise one line per head that does.
+ */
+export function groupRows(show: Show, g: FixtureGroup, universe: number): GroupRow[] {
+  const rows: GroupRow[] = [];
+  const done = new Set<number>();
+  for (const m of sortByGrid(g.members)) {
+    const fixture = show.fixtures.find((f) => f.id === m.fixture);
+    if (!fixture || fixture.universe !== universe || done.has(fixture.id)) continue;
+    done.add(fixture.id);
+    const heads = g.members.filter((x) => x.fixture === fixture.id).map((x) => x.head).sort((a, b) => a - b);
+    if (heads.length >= headCount(show, fixture)) rows.push({ fixture, head: null });
+    else rows.push(...heads.map((head) => ({ fixture, head })));
+  }
+  return rows;
+}
+
+/** The group with every head of the given fixtures added (already members are skipped). */
+export function groupWithFixtures(show: Show, g: FixtureGroup, fixtureIds: number[]): FixtureGroup {
+  const existing = new Set(g.members.map((m) => `${m.fixture}:${m.head}`));
+  const extra = show.fixtures
+    .filter((f) => fixtureIds.includes(f.id))
+    .flatMap((f) => Array.from({ length: headCount(show, f) }, (_, head) => ({ fixture: f.id, head, grid: null })))
+    .filter((m) => !existing.has(`${m.fixture}:${m.head}`));
+  if (!extra.length) return g;
+  return resizeGrid({ ...g, members: [...g.members, ...extra] }, g.grid_width, g.grid_height);
 }
 
 /** Resizes the grid, moving members that fall outside into free cells. */

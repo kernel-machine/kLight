@@ -2,7 +2,7 @@
   // Functions listed by type, each type with its own nestable folders.
   // Drag functions and folders onto a folder (or a type header) to move them.
   import { app, pref, run, setPref } from '../lib/app.svelte';
-  import { nextId } from '../lib/show';
+  import { FUNCTION_CATEGORIES, foldersIn as foldersOf, functionsIn as functionsOf, nextId } from '../lib/show';
   import type { Function as Fn, FunctionCategory, FunctionFolder } from '../lib/protocol';
 
   let {
@@ -18,13 +18,7 @@
   const show = $derived(app.s.show!);
   const active = $derived(new Map((app.s.runtime?.state.active ?? []).map((a) => [a.id, a])));
 
-  const CATEGORIES: Array<{ id: FunctionCategory; label: string; one: string; short: string }> = [
-    { id: 'scene', label: 'Scenes', one: 'scene', short: 'Scene' },
-    { id: 'chaser', label: 'Chasers', one: 'chaser', short: 'Chaser' },
-    { id: 'cue_list', label: 'Cue lists', one: 'cue list', short: 'Cue list' },
-    { id: 'movement_effect', label: 'Movements', one: 'movement', short: 'Movement' },
-    { id: 'matrix_effect', label: 'Matrix effects', one: 'matrix effect', short: 'Matrix' },
-  ];
+  const CATEGORIES = FUNCTION_CATEGORIES;
   /** Types with something in them (functions or folders): empty types are hidden. */
   const visibleCategories = $derived(
     CATEGORIES.filter((c) => show.functions.some((f) => f.kind.type === c.id) || show.function_folders.some((f) => f.category === c.id)),
@@ -40,13 +34,9 @@
     collapsed = s;
   }
 
-  const byName = (a: { name: string }, b: { name: string }) =>
-    a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
   const categoryOf = (f: Fn): FunctionCategory => f.kind.type;
-  const foldersIn = (category: FunctionCategory, parent: number | null) =>
-    show.function_folders.filter((f) => f.category === category && (f.parent ?? null) === parent).sort(byName);
-  const functionsIn = (category: FunctionCategory, folder: number | null) =>
-    show.functions.filter((f) => categoryOf(f) === category && (f.folder ?? null) === folder).sort(byName);
+  const foldersIn = (category: FunctionCategory, parent: number | null) => foldersOf(show, category, parent);
+  const functionsIn = (category: FunctionCategory, folder: number | null) => functionsOf(show, category, folder);
 
   /** Number of functions in a folder, subfolders included. */
   function countIn(folder: FunctionFolder): number {

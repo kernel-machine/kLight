@@ -11,6 +11,7 @@
   const show = $derived(app.s.show!);
   let selected = $state<Set<number>>(new Set());
   let focused = $state<number | null>(null);
+  let selectedGroup = $state<number | null>(null);
   const focusedUniverse = $derived(show.fixtures.find((f) => f.id === focused)?.universe ?? show.universes[0]?.id ?? 1);
   const warnings = $derived((app.s.runtime?.warnings ?? []).filter((w) => w.includes('conflict') || w.includes('skipped')));
 
@@ -19,6 +20,7 @@
     const ids = new Set(show.fixtures.map((f) => f.id));
     if ([...selected].some((id) => !ids.has(id))) selected = new Set([...selected].filter((id) => ids.has(id)));
     if (focused !== null && !ids.has(focused)) focused = null;
+    if (selectedGroup !== null && !show.groups.some((g) => g.id === selectedGroup)) selectedGroup = null;
   });
 
   function toggle(id: number) {
@@ -42,19 +44,32 @@
       grid_width: width,
       grid_height: Math.ceil(heads.length / width),
     };
-    if (await run({ type: 'set_group', group })) selected = new Set();
+    if (await run({ type: 'set_group', group })) {
+      selected = new Set();
+      selectedGroup = group.id;
+    }
   }
 </script>
 
 <div class="layout">
-  <UniverseTree {selected} {focused} ontoggle={toggle} onfocus={(id) => (focused = id)} oncreategroup={createGroup} />
+  <UniverseTree
+    {selected}
+    {focused}
+    {selectedGroup}
+    ontoggle={toggle}
+    onfocus={(id) => (focused = focused === id ? null : id)}
+    onselectgroup={(id) => (selectedGroup = id)}
+    oncreategroup={createGroup}
+  />
   <div class="col right">
     {#each warnings as w}<div class="badge warn">{w}</div>{/each}
     {#if focused !== null}
       <FixtureDetails id={focused} onclose={() => (focused = null)} />
     {/if}
+    {#if selectedGroup !== null}
+      <GroupEditor {selected} groupId={selectedGroup} onclose={() => (selectedGroup = null)} />
+    {/if}
     <AddFixtures defaultUniverse={focusedUniverse} />
-    <GroupEditor {selected} />
   </div>
 </div>
 

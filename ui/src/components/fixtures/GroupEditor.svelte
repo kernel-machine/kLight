@@ -2,16 +2,15 @@
   // Groups: a matrix where heads are dragged to set position and order
   // (order = row by row). Click a head then a cell also works (touch).
   import { app, run } from '../../lib/app.svelte';
-  import { groupColor, headCount, moveInGrid, resizeGrid } from '../../lib/show';
+  import { groupColor, groupWithFixtures, headCount, moveInGrid, resizeGrid } from '../../lib/show';
   import type { FixtureGroup } from '../../lib/protocol';
 
-  let { selected }: { selected: Set<number> } = $props();
+  let { selected, groupId, onclose }: { selected: Set<number>; groupId: number; onclose: () => void } = $props();
   const show = $derived(app.s.show!);
-  let current = $state<number | null>(null);
   let dragging = $state<number | null>(null);
   let picked = $state<number | null>(null);
 
-  const raw = $derived(show.groups.find((g) => g.id === current) ?? show.groups[0]);
+  const raw = $derived(show.groups.find((g) => g.id === groupId));
   /** Group with every member inside the grid (older shows may lack positions). */
   const group = $derived.by(() => {
     if (!raw) return undefined;
@@ -47,14 +46,8 @@
 
   function addSelected() {
     if (!group) return;
-    const existing = new Set(group.members.map((m) => `${m.fixture}:${m.head}`));
-    const extra = show.fixtures
-      .filter((f) => selected.has(f.id))
-      .flatMap((f) => Array.from({ length: headCount(show, f) }, (_, head) => ({ fixture: f.id, head, grid: null })))
-      .filter((m) => !existing.has(`${m.fixture}:${m.head}`));
-    if (!extra.length) return;
-    const g = { ...group, members: [...group.members, ...extra] };
-    save(resizeGrid(g, group.grid_width, group.grid_height));
+    const next = groupWithFixtures(show, group, [...selected]);
+    if (next !== group) save(next);
   }
 
   function removeMember(i: number) {
@@ -62,19 +55,14 @@
   }
 </script>
 
+{#if group}
 <section class="panel col">
-  <h2>Groups</h2>
   <div class="row">
-    {#each show.groups as g (g.id)}
-      <button class="chip" class:selected={group?.id === g.id} style="--gc:{groupColor(show, g.id)}" onclick={() => (current = g.id)}>
-        <span class="swatch"></span>{g.name} <span class="muted">({g.members.length})</span>
-      </button>
-    {:else}
-      <span class="muted">Select fixtures in the universe list and press "Create group".</span>
-    {/each}
+    <h2>Group: {group.name}</h2>
+    <span class="spacer"></span>
+    <button onclick={onclose}>Close</button>
   </div>
 
-  {#if group}
     <div class="row">
       <input value={group.name} aria-label="Group name" onchange={(e) => save({ ...group, name: e.currentTarget.value })} />
       <label class="row">Grid
@@ -83,7 +71,7 @@
         <input type="number" min="1" max="64" value={group.grid_height} aria-label="Grid height" style="width:64px" onchange={(e) => save(resizeGrid(group, group.grid_width, Number(e.currentTarget.value)))} />
       </label>
       <button disabled={!selected.size} onclick={addSelected}>Add selected</button>
-      <button class="danger" onclick={() => { run({ type: 'remove_group', id: group.id }); current = null; }}>Delete group</button>
+      <button class="danger" onclick={() => { run({ type: 'remove_group', id: group.id }); onclose(); }}>Delete group</button>
     </div>
     <p class="muted small">Drag heads to reorder them: the order (number) follows the grid row by row and drives chases, fans and effect phase.</p>
     <div class="matrix" style="--w:{group.grid_width}; --gc:{color}" role="grid" aria-label="Group matrix">
@@ -122,13 +110,11 @@
         </div>
       {/each}
     </div>
-  {/if}
 </section>
+{/if}
 
 <style>
-  .chip { display: inline-flex; align-items: center; gap: 6px; }
-  .chip.selected { background: color-mix(in srgb, var(--gc) 30%, var(--panel-2)); border-color: var(--gc); color: var(--text); }
-  .swatch { width: 10px; height: 10px; border-radius: 50%; background: var(--gc); }
+  .spacer { flex: 1; }
   .small { font-size: 12px; margin: 0; }
   .matrix { display: grid; grid-template-columns: repeat(var(--w), minmax(70px, 1fr)); gap: 6px; overflow-x: auto; }
   .cell { min-height: 64px; border: 1px dashed var(--border); border-radius: var(--radius); display: flex; }

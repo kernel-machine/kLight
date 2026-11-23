@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { channelMap, colorSequence, conflictsWith, maxSequenceColors, nextFreeAddress, parseTime, hexToColor, colorToHex } from './show';
+import { channelMap, colorSequence, frameFromFunctions, functionsUnder, functionColor, groupFixtureIds, groupRows, groupWithFixtures, conflictsWith, maxSequenceColors, nextFreeAddress, parseTime, hexToColor, colorToHex } from './show';
 import type { Show } from './protocol';
 
 const def = {
@@ -111,5 +111,100 @@ describe('color sequence (from the core)', () => {
     expect(colorSequence(3).map((c) => c.name)).toEqual(['Red', 'Green', 'Blue']);
     expect(colorSequence(1000)).toHaveLength(maxSequenceColors());
     expect(colorToHex(colorSequence(1)[0]!.color)).toBe('#ff0000');
+  });
+});
+
+describe('functionColor', () => {
+  const scene = (values: unknown[]) => ({ id: 1, name: 'S', folder: null, kind: { type: 'scene', values, timing: {}, spread: { type: 'none' }, attribute_timing: [] } }) as never;
+  const target = { type: 'group', id: 1 } as const;
+  const red = { r: 1, g: 0, b: 0 };
+  it('finds the color of a scene, null otherwise', () => {
+    const s = {} as Show;
+    const withColor = scene([
+      { target, value: { type: 'explicit', value: { type: 'intensity', level: 1 } } },
+      { target, value: { type: 'explicit', value: { type: 'color', color: red } } },
+    ]);
+    expect(functionColor(s, withColor)).toEqual(red);
+    expect(functionColor(s, scene([{ target, value: { type: 'explicit', value: { type: 'intensity', level: 1 } } }]))).toBeNull();
+    expect(functionColor(s, undefined)).toBeNull();
+  });
+});
+
+describe('frameFromFunctions', () => {
+  const sc = (id: number, name: string, color?: { r: number; g: number; b: number }) => ({
+    id,
+    name,
+    folder: null,
+    kind: {
+      type: 'scene',
+      values: color ? [{ target: { type: 'group', id: 1 }, value: { type: 'explicit', value: { type: 'color', color } } }] : [],
+      timing: {},
+      spread: { type: 'none' },
+      attribute_timing: [],
+    },
+  });
+  const s = { functions: [sc(1, 'Red', { r: 1, g: 0, b: 0 }), sc(2, 'Plain'), sc(3, 'Blue', { r: 0, g: 0, b: 1 })], palettes: [] } as unknown as Show;
+
+  it('makes one bound button per function, in the given order', () => {
+    const w = frameFromFunctions(s, [3, 1, 2], { solo: false, name: 'F', firstId: 10, x: 5, y: 6 });
+    expect(w.kind).toEqual({ type: 'frame', pages: 1 });
+    expect(w.id).toBe(10);
+    expect(w.children.map((c) => [c.id, c.function, c.props.label])).toEqual([[11, 3, 'Blue'], [12, 1, 'Red'], [13, 2, 'Plain']]);
+    expect(w.children[0]!.props.color).toEqual({ r: 0, g: 0, b: 255 });
+    expect(w.children[2]!.props.color).toBeNull();
+    expect(w.children.every((c) => c.kind.type === 'button')).toBe(true);
+  });
+
+  it('solo frame, grid size and unknown ids', () => {
+    const w = frameFromFunctions(s, [1, 99, 2, 3], { solo: true, name: 'S', firstId: 1, x: 0, y: 0 });
+    expect(w.kind).toEqual({ type: 'solo_frame' });
+    expect(w.children).toHaveLength(3);
+    expect(w.props.width).toBe(10 + 3 * 110);
+    expect(w.props.height).toBe(24 + 80);
+  });
+});
+
+describe('function tree helpers', () => {
+  const fn = (id: number, name: string, folder: number | null, type = 'scene') => ({ id, name, folder, kind: { type } }) as never;
+  const s = {
+    functions: [fn(1, 'b', null), fn(2, 'a', 10), fn(3, 'c', 11), fn(4, 'x', null, 'chaser')],
+    function_folders: [
+      { id: 10, category: 'scene', name: 'F', parent: null },
+      { id: 11, category: 'scene', name: 'G', parent: 10 },
+    ],
+  } as unknown as Show;
+  it('lists a type, folder by folder', () => {
+    expect(functionsUnder(s, 'scene', null).map((f) => f.id)).toEqual([1, 2, 3]);
+    expect(functionsUnder(s, 'scene', 10).map((f) => f.id)).toEqual([2, 3]);
+    expect(functionsUnder(s, 'chaser', null).map((f) => f.id)).toEqual([4]);
+  });
+});
+
+describe('group helpers', () => {
+  const g = { id: 1, name: 'G', members: [{ fixture: 1, head: 0, grid: { x: 0, y: 0 } }], grid_width: 1, grid_height: 1 };
+  it('adds the heads of fixtures once and lists fixtures once', () => {
+    const s = show([1, 10, 20]);
+    const next = groupWithFixtures(s, g, [1, 2, 3]);
+    expect(groupFixtureIds(next)).toEqual([1, 2, 3]);
+    expect(next.members).toHaveLength(3);
+    expect(groupWithFixtures(s, next, [2, 3])).toBe(next); // nothing new
+  });
+});
+
+describe('groupRows', () => {
+  it('lists the fixtures of a group in a universe, in grid order', () => {
+    const s = show([1, 10, 20]);
+    const g = {
+      id: 1,
+      name: 'G',
+      members: [
+        { fixture: 3, head: 0, grid: { x: 0, y: 0 } },
+        { fixture: 1, head: 0, grid: { x: 1, y: 0 } },
+      ],
+      grid_width: 2,
+      grid_height: 1,
+    };
+    expect(groupRows(s, g, 1).map((r) => [r.fixture.id, r.head])).toEqual([[3, null], [1, null]]);
+    expect(groupRows(s, g, 2)).toEqual([]);
   });
 });
