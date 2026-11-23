@@ -1,0 +1,5 @@
+[toolchain]
+channel = "1.94.1"
+components = ["rustfmt", "clippy"]
+# The UI uses the pure core functions compiled to WebAssembly (crates/klight-wasm).
+targets = ["wasm32-unknown-unknown"]

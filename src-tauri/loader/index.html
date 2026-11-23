@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>kLight</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #111317; color: #8a93a6; font-family: system-ui, sans-serif; }
+      body { display: flex; align-items: center; justify-content: center; }
+    </style>
+  </head>
+  <body>
+    <div id="msg">Starting the kLight engine…</div>
+    <script>
+      // The desktop window shows exactly the UI that remote clients get,
+      // served by the local engine.
+      const ENGINE = 'http://127.0.0.1:9400/';
+      async function poll() {
+        try {
+          await fetch(ENGINE + 'api/health', { mode: 'no-cors', cache: 'no-store' });
+          location.replace(ENGINE);
+        } catch {
+          setTimeout(poll, 300);
+        }
+      }
+      poll();
+    </script>
+  </body>
+</html>

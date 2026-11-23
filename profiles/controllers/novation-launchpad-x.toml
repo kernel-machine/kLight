@@ -1,0 +1,6 @@
+# Novation Launchpad X: exact RGB through SysEx (programmer mode).
+name = "Novation Launchpad X"
+kind = "rgb_sysex"
+template = "F0 00 20 29 02 0C 03 03 {index} {r} {g} {b} F7"
+max = 127
+inactive_brightness = 0.15

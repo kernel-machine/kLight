@@ -1,0 +1,64 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/klight-model",
+    "crates/klight-fixtures",
+    "crates/klight-engine-core",
+    "crates/klight-io",
+    "crates/klight-input",
+    "crates/klight-persist",
+    "crates/klight-api",
+    "crates/klight-engine",
+    "crates/klight-supervisor",
+    "crates/klight-sim",
+    "crates/klight-wasm",
+]
+# The Tauri shell is built separately (needs WebKit system libraries).
+exclude = ["src-tauri", "fuzz"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.94"
+publish = false
+# License intentionally not set yet: see SPEC.md §18 (open decision).
+
+[workspace.dependencies]
+klight-model = { path = "crates/klight-model" }
+klight-fixtures = { path = "crates/klight-fixtures" }
+klight-engine-core = { path = "crates/klight-engine-core" }
+klight-io = { path = "crates/klight-io" }
+klight-input = { path = "crates/klight-input" }
+klight-persist = { path = "crates/klight-persist" }
+klight-api = { path = "crates/klight-api" }
+klight-sim = { path = "crates/klight-sim" }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+quick-xml = "0.37"
+crossbeam-channel = "0.5"
+arc-swap = "1.7"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+tracing-appender = "0.2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "signal"] }
+axum = { version = "0.8", features = ["ws"] }
+tower-http = { version = "0.6", features = ["fs", "compression-gzip"] }
+futures-util = "0.3"
+serialport = "4"
+midir = "0.10"
+rosc = "0.11"
+toml = "0.9"
+ts-rs = "11"
+proptest = "1"
+insta = { version = "1", features = ["json"] }
+tempfile = "3"
+
+[profile.release.package.klight-wasm]
+opt-level = "s"
+debug = false
+
+[profile.release]
+debug = 1
+panic = "unwind"

@@ -1,0 +1,31 @@
+[package]
+name = "klight-input"
+description = "MIDI and OSC input, mappings, soft takeover, controller profiles and feedback."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[features]
+default = ["midi"]
+# Real MIDI ports through midir (ALSA on Linux, CoreMIDI, WinMM).
+midi = ["dep:midir"]
+
+[dependencies]
+klight-model.workspace = true
+klight-fixtures.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+crossbeam-channel.workspace = true
+rosc.workspace = true
+toml.workspace = true
+midir = { workspace = true, optional = true }
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"

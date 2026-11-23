@@ -1,0 +1,48 @@
+[package]
+name = "klight-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+klight-fixtures = { path = "../crates/klight-fixtures" }
+klight-persist = { path = "../crates/klight-persist" }
+klight-api = { path = "../crates/klight-api" }
+klight-input = { path = "../crates/klight-input", default-features = false }
+
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "qxf"
+path = "fuzz_targets/qxf.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "show_file"
+path = "fuzz_targets/show_file.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "api_message"
+path = "fuzz_targets/api_message.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "osc"
+path = "fuzz_targets/osc.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "midi"
+path = "fuzz_targets/midi.rs"
+test = false
+doc = false

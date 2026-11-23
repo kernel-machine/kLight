@@ -1,0 +1,10 @@
+# Akai APC mini (mk1): pad colors chosen by velocity.
+name = "Akai APC mini"
+kind = "palette"
+inactive_brightness = 0.0
+colors = [
+  { value = 0, color = "#000000" },
+  { value = 1, color = "#00ff00" },
+  { value = 3, color = "#ff0000" },
+  { value = 5, color = "#ffbf00" },
+]

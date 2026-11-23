@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The UI is a plain web client of the engine: no Tauri APIs are exposed to it.",
+  "windows": ["main"],
+  "permissions": []
+}

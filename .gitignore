@@ -1,0 +1,20 @@
+/target
+**/node_modules
+/ui/dist
+/src-tauri/target
+/src-tauri/gen
+*.log
+/fuzz/target
+/fuzz/corpus
+/fuzz/artifacts
+/src-tauri/binaries
+/ui/src/lib/wasm
+# Show files and their backups/runtime state are user data, not source.
+/*.klight.json
+/*.klight.json.backups/
+/*.klight.json.runtime.json
+# Playwright output
+/ui/test-results
+/ui/playwright-report
+# QLC+ fixture library: downloaded by scripts/update-qlcplus-fixtures.sh
+/fixtures/qlcplus/

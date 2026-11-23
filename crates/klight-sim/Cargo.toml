@@ -1,0 +1,26 @@
+[package]
+name = "klight-sim"
+description = "Deterministic simulator: scenarios, golden tests, chaos and soak harness."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+klight-model.workspace = true
+klight-fixtures.workspace = true
+klight-engine-core.workspace = true
+klight-io.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+crossbeam-channel.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+tempfile.workspace = true
+klight-persist.workspace = true
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"

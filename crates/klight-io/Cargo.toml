@@ -1,0 +1,31 @@
+[package]
+name = "klight-io"
+description = "Output drivers (Enttec DMX USB Pro, Open DMX, fake) and the device manager."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[features]
+default = ["serial"]
+# Real serial/FTDI drivers. Without it only the fake driver is available.
+serial = ["dep:serialport"]
+# Tests that need real Enttec hardware attached.
+hardware-tests = ["serial"]
+
+[dependencies]
+klight-model.workspace = true
+klight-engine-core.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+arc-swap.workspace = true
+serde.workspace = true
+serialport = { workspace = true, optional = true }
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"

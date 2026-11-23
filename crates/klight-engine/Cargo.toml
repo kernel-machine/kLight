@@ -1,0 +1,33 @@
+[package]
+name = "klight-engine"
+description = "kLight headless engine: assembles tick loop, drivers, inputs, persistence and API."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "klight-engine"
+path = "src/main.rs"
+
+[dependencies]
+klight-model.workspace = true
+klight-fixtures.workspace = true
+klight-engine-core.workspace = true
+klight-io.workspace = true
+klight-input.workspace = true
+klight-persist.workspace = true
+klight-api.workspace = true
+crossbeam-channel.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tracing-appender.workspace = true
+serde_json.workspace = true
+# Raises the tick and Open DMX threads to high priority (MIT/Apache-2.0).
+thread-priority = "1"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"

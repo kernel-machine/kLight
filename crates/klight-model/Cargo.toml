@@ -1,0 +1,29 @@
+[package]
+name = "klight-model"
+description = "Pure data types for kLight: show, fixtures, functions, widgets, commands. No I/O."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[features]
+# Generates TypeScript bindings for the API types (used by `cargo test -p klight-api --features ts`).
+ts = ["dep:ts-rs"]
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+ts-rs = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json.workspace = true
+proptest.workspace = true
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+indexing_slicing = "deny"

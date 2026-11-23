@@ -1,0 +1,5 @@
+# Any controller with single-color LEDs driven by note velocity.
+name = "Generic on/off"
+kind = "on_off"
+on = 127
+off = 0
