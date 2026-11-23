@@ -146,6 +146,28 @@ pub struct OutputInfo {
     pub last_error: Option<String>,
 }
 
+/// An LED behaviour a controller profile offers (`GET /api/input-profiles`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct LedBehaviorInfo {
+    /// MIDI feedback channel (0-based) that selects the behaviour.
+    pub channel: u8,
+    pub label: String,
+}
+
+/// A controller profile devices can use for LED feedback.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct InputProfileInfo {
+    /// What `InputDeviceConfig.profile` stores.
+    pub id: String,
+    pub name: String,
+    /// Behaviours the user can pick per widget state (empty: a single look).
+    pub behaviors: Vec<LedBehaviorInfo>,
+    /// Channel of the behaviour used for "on" until the user picks another.
+    pub default_active: Option<u8>,
+}
+
 /// A serial port that may be a DMX interface (`GET /api/ports`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
@@ -162,6 +184,11 @@ pub struct InputInfo {
     pub name: String,
     pub kind: String,
     pub connected: bool,
+    /// Messages received since start (clock pulses excluded): the UI lights
+    /// an activity lamp when this grows.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub events: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]

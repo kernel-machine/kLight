@@ -388,6 +388,19 @@ Architecture ready for Art-Net/sACN (same trait), not implemented in v1.
   - `palette`: color chosen through velocity or value → the nearest palette
     color in a perceptual space (e.g. OKLab).
   - `rgb_sysex`: SysEx template with exact RGB.
+- **QLC+ input profiles** (`.qxi`, Apache 2.0, downloaded by
+  `scripts/update-qlcplus-fixtures.sh` into `profiles/qlcplus`, not stored in
+  the repository) are read at runtime like `.qxf` fixtures and offered as
+  controller profiles. The color table becomes a `palette` profile (nearest
+  color) and the MIDI channel table becomes the **LED behaviours** the
+  controller can show (brightness levels, pulsing, blinking), selected through
+  the MIDI channel of the feedback message. Controllers without a color table
+  get on/off from the feedback range; without any feedback they are not listed.
+  A TOML profile with the same id takes precedence.
+- Per configured controller the user picks the LED behaviour for **widget on**
+  (its function is running; default: the profile's own "on" channel) and for
+  **widget off** (default: LED off). A third state (armed / next) with its own
+  behaviour is future work: for now it blinks between the two.
 - Widget **states** → color variants: inactive (dim), active (full),
   next/armed (blinking).
 - Send **only differences**, with a per-device rate limit.

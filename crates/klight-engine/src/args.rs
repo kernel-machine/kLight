@@ -12,6 +12,7 @@ pub const USAGE: &str = "usage: klight-engine [options]
   --ui <dir>            web UI directory served to remote clients
   --fixtures <dir>      .qxf directory (repeatable; default: fixtures)
   --profiles <dir>      controller profiles (default: profiles/controllers)
+  --qlcplus-profiles <dir>  QLC+ input profiles, .qxi (default: profiles/qlcplus)
   --token <tok>[:perm]  remote client token; perm = full|playback|readonly (repeatable)
   --log-dir <dir>       write rotating log files to this directory
   --exit-on-stdin-close shut down cleanly when stdin closes (used by the supervisor)";
@@ -24,6 +25,7 @@ pub struct Args {
     pub ui_dir: Option<PathBuf>,
     pub fixture_dirs: Vec<PathBuf>,
     pub profiles_dir: PathBuf,
+    pub qlcplus_profiles_dir: PathBuf,
     pub tokens: Vec<TokenGrant>,
     pub log_dir: Option<PathBuf>,
     pub exit_on_stdin_close: bool,
@@ -38,6 +40,7 @@ impl Args {
             ui_dir: None,
             fixture_dirs: Vec::new(),
             profiles_dir: PathBuf::from("profiles/controllers"),
+            qlcplus_profiles_dir: PathBuf::from("profiles/qlcplus"),
             tokens: Vec::new(),
             log_dir: None,
             exit_on_stdin_close: false,
@@ -56,6 +59,9 @@ impl Args {
                 "--ui" => a.ui_dir = Some(PathBuf::from(value("--ui")?)),
                 "--fixtures" => a.fixture_dirs.push(PathBuf::from(value("--fixtures")?)),
                 "--profiles" => a.profiles_dir = PathBuf::from(value("--profiles")?),
+                "--qlcplus-profiles" => {
+                    a.qlcplus_profiles_dir = PathBuf::from(value("--qlcplus-profiles")?)
+                }
                 "--log-dir" => a.log_dir = Some(PathBuf::from(value("--log-dir")?)),
                 "--token" => {
                     let v = value("--token")?;

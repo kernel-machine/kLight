@@ -18,3 +18,4 @@
 /ui/playwright-report
 # QLC+ fixture library: downloaded by scripts/update-qlcplus-fixtures.sh
 /fixtures/qlcplus/
+/profiles/qlcplus/

@@ -24,6 +24,11 @@ impl InputHost for EngineHost {
         self.shared.snapshot.load_full()
     }
 
+    fn beat(&self) -> f64 {
+        self.shared.beat.load(std::sync::atomic::Ordering::Relaxed) as f64
+            / klight_engine_core::music::BEAT as f64
+    }
+
     fn submit(&self, source: CommandSource, command: Command) {
         // Input results are not routed to anyone (id 0); a full queue drops
         // the event rather than blocking the input thread.

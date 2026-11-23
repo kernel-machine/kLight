@@ -43,6 +43,7 @@ pub type StatusFn = Arc<dyn Fn() -> SystemStatus + Send + Sync>;
 pub type MidiInFn = Arc<dyn Fn(ClientId, &str, &[u8]) + Send + Sync>;
 pub type LearnFn = Arc<dyn Fn(ClientId) + Send + Sync>;
 pub type PortsFn = Arc<dyn Fn() -> Vec<SerialPortInfo> + Send + Sync>;
+pub type InputProfilesFn = Arc<dyn Fn() -> Vec<InputProfileInfo> + Send + Sync>;
 
 #[derive(Clone)]
 pub struct ApiHooks {
@@ -50,6 +51,7 @@ pub struct ApiHooks {
     pub midi_in: Option<MidiInFn>,
     pub learn: Option<LearnFn>,
     pub ports: Option<PortsFn>,
+    pub input_profiles: Option<InputProfilesFn>,
 }
 
 const CLIENT_QUEUE: usize = 1024;
@@ -222,7 +224,8 @@ pub async fn serve(
         .route("/api/library", get(library))
         .route("/api/library/definition", get(library_definition))
         .route("/api/runtime", get(runtime_state))
-        .route("/api/ports", get(ports));
+        .route("/api/ports", get(ports))
+        .route("/api/input-profiles", get(input_profiles));
     if let Some(dir) = &config.static_dir {
         let index = dir.join("index.html");
         app = app.fallback_service(
@@ -269,6 +272,16 @@ async fn ports(State(s): State<AppState>) -> impl IntoResponse {
     let f = s.hooks.ports.clone();
     let list = tokio::task::spawn_blocking(move || f.map(|f| f()).unwrap_or_default())
         .await
+        .unwrap_or_default();
+    Json(list)
+}
+
+async fn input_profiles(State(s): State<AppState>) -> impl IntoResponse {
+    let list: Vec<InputProfileInfo> = s
+        .hooks
+        .input_profiles
+        .as_ref()
+        .map(|f| f())
         .unwrap_or_default();
     Json(list)
 }

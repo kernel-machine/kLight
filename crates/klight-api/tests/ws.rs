@@ -57,6 +57,7 @@ async fn connect_command_ack_and_updates() {
         midi_in: None,
         learn: None,
         ports: None,
+        input_profiles: None,
     };
     let server = serve(config, shared, ctx, rrx, hooks).await.unwrap();
     let url = format!("ws://{}/ws", server.local_addr);

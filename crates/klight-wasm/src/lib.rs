@@ -236,6 +236,14 @@ pub fn hex_to_linear(hex: &str) -> Vec<f32> {
     vec![c.r, c.g, c.b]
 }
 
+/// Beat lamp at musical position `beat`: bit 0 = lit, bit 1 = first beat of a
+/// bar. The engine uses the same function for controller LEDs.
+#[wasm_bindgen]
+pub fn beat_flash_bits(beat: f64, bpm: f64, beats_per_bar: u8) -> u8 {
+    let f = klight_model::beat_flash(beat, bpm, beats_per_bar);
+    u8::from(f.on) | (u8::from(f.down) << 1)
+}
+
 /// Most colors `color_sequence` can return.
 #[wasm_bindgen]
 pub fn max_sequence_colors() -> u32 {
@@ -264,6 +272,13 @@ pub fn color_sequence_json(n: u32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn beat_flash_bits_match_the_core() {
+        assert_eq!(beat_flash_bits(8.0, 120.0, 4), 0b11);
+        assert_eq!(beat_flash_bits(9.0, 120.0, 4), 0b01);
+        assert_eq!(beat_flash_bits(9.5, 120.0, 4), 0);
+    }
 
     #[test]
     fn color_sequence_json_shape() {

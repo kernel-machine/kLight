@@ -22,7 +22,7 @@ architecture and [`docs/user-guide.md`](docs/user-guide.md) for the user guide.
 | `crates/klight-wasm` | Pure core functions compiled to WebAssembly for the UI |
 | `ui/` | Svelte + TypeScript UI (protocol types generated from Rust) |
 | `src-tauri/` | Desktop shell (built separately) |
-| `fixtures/qlcplus/` | QLC+ fixture library, downloaded by `scripts/update-qlcplus-fixtures.sh` (not versioned) |
+| `fixtures/qlcplus/`, `profiles/qlcplus/` | QLC+ fixture library and controller (`.qxi`) profiles, downloaded by `scripts/update-qlcplus-fixtures.sh` (not versioned) |
 | `fixtures/`, `profiles/controllers/`, `tests/golden/` | Test fixtures, controller profiles, golden frames |
 | `fuzz/` | `cargo-fuzz` targets |
 
@@ -94,7 +94,8 @@ conversions are the engine's own Rust functions compiled to WebAssembly
 
 ## Fixture library
 
-The QLC+ fixture definitions (about 1800 `.qxf` files, Apache License 2.0)
+The QLC+ fixture definitions (about 1800 `.qxf` files) and controller profiles
+(`.qxi`, used for LED feedback; Apache License 2.0)
 are not stored in this repository. Download them once after cloning, and
 again whenever you want to update them:
 
@@ -103,7 +104,9 @@ scripts/update-qlcplus-fixtures.sh
 ```
 
 They go to `fixtures/qlcplus/` (one folder per manufacturer, with the QLC+
-license and the upstream commit). The engine loads every `.qxf` under
+license and the upstream commit); the controller profiles go to
+`profiles/qlcplus/` (`--qlcplus-profiles`). In Devices, pick the profile of
+a controller and choose what its LEDs do when a widget is on or off. The engine loads every `.qxf` under
 `--fixtures` recursively and the UI lists them by manufacturer. Without them
 kLight still works with the few test definitions in `fixtures/` and with the
 definitions embedded in each show. CI and the desktop build download them

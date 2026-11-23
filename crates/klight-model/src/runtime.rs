@@ -29,6 +29,34 @@ pub struct TempoStatus {
     pub beats_per_bar: u8,
 }
 
+/// Longest a tempo lamp stays lit on each beat.
+pub const BEAT_FLASH_MAX_MS: f64 = 120.0;
+
+/// A lamp that blinks on the beat (tap buttons, tempo LEDs).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct BeatFlash {
+    pub on: bool,
+    /// The beat starts a bar (accent).
+    pub down: bool,
+}
+
+/// Lamp state at musical position `beat` (in beats) for the given tempo: lit
+/// at the start of every beat for a third of the beat, at most
+/// [`BEAT_FLASH_MAX_MS`]. Invalid input (NaN, no tempo) keeps the lamp off.
+pub fn beat_flash(beat: f64, bpm: f64, beats_per_bar: u8) -> BeatFlash {
+    if !(bpm.is_finite() && bpm > 0.0 && beat.is_finite()) {
+        return BeatFlash::default();
+    }
+    let beat_ms = 60_000.0 / bpm;
+    let whole = beat.floor();
+    let into_ms = (beat - whole) * beat_ms;
+    let bar = f64::from(beats_per_bar.max(1));
+    BeatFlash {
+        on: into_ms < BEAT_FLASH_MAX_MS.min(beat_ms * 0.3),
+        down: whole.rem_euclid(bar) == 0.0,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct ActiveFunction {
@@ -105,4 +133,50 @@ pub struct RuntimeSnapshot {
     /// Problems found while compiling the show (unresolved references,
     /// ignored attributes, conflicts).
     pub warnings: Vec<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn beat_flash_lights_the_start_of_each_beat() {
+        // 120 BPM: a beat every 500 ms, lit for 120 ms.
+        let f = |beat| beat_flash(beat, 120.0, 4);
+        assert_eq!(
+            f(8.0),
+            BeatFlash {
+                on: true,
+                down: true
+            }
+        );
+        assert!(f(8.2).on); // 100 ms in
+        assert!(!f(8.3).on); // 150 ms in
+        assert_eq!(
+            f(9.0),
+            BeatFlash {
+                on: true,
+                down: false
+            }
+        );
+        assert_eq!(
+            f(12.0),
+            BeatFlash {
+                on: true,
+                down: true
+            }
+        );
+    }
+
+    #[test]
+    fn beat_flash_is_shorter_at_fast_tempos_and_safe_on_bad_input() {
+        // 300 BPM: 200 ms beat, lit for 30% = 60 ms.
+        assert!(beat_flash(1.25, 300.0, 4).on); // 50 ms in
+        assert!(!beat_flash(1.35, 300.0, 4).on); // 70 ms in
+        assert!(!beat_flash(1.0, 0.0, 4).on);
+        assert!(!beat_flash(f64::NAN, 120.0, 4).on);
+        assert!(!beat_flash(1.0, f64::INFINITY, 4).on);
+        // Negative positions are fine too (bar counted backwards).
+        assert!(beat_flash(-4.0, 120.0, 4).down);
+    }
 }

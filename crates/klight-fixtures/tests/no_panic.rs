@@ -41,3 +41,26 @@ fn deep_nesting_is_rejected() {
     let s = "<a>".repeat(10_000);
     assert!(klight_fixtures::parse_qxf(&s).is_err());
 }
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(500))]
+
+    #[test]
+    fn arbitrary_qxi_text(s in ".{0,400}") {
+        let _ = klight_fixtures::parse_qxi(&s);
+    }
+
+    #[test]
+    fn mangled_qxi(
+        n in "[0-9a-z-]{0,6}",
+        rgb in "[#0-9a-zA-Z]{0,9}",
+        v in "[0-9a-z-]{0,5}",
+    ) {
+        let s = format!(
+            "<InputProfile><Channel Number=\"{n}\"><Feedback LowerValue=\"{v}\" MidiChannel=\"{v}\"/></Channel>\
+             <ColorTable><Color Value=\"{v}\" RGB=\"{rgb}\"/></ColorTable>\
+             <MidiChannelTable><Channel Value=\"{v}\"/></MidiChannelTable></InputProfile>"
+        );
+        let _ = klight_fixtures::parse_qxi(&s);
+    }
+}

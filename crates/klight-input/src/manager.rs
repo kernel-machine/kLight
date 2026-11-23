@@ -13,7 +13,7 @@ use crossbeam_channel::{Receiver, Sender};
 use klight_model::input_map::{InputDeviceKind, InputMessage};
 use klight_model::{ClientId, Command, CommandSource, RuntimeSnapshot, Show};
 
-use crate::feedback::{ControllerProfile, FeedbackTracker};
+use crate::feedback::{ControllerProfile, FeedbackTime, FeedbackTracker};
 use crate::mapping::{InputEvent, Mapper};
 use crate::midi::{self, MidiEvent};
 
@@ -23,6 +23,8 @@ pub trait InputHost: Send + Sync + 'static {
     fn runtime(&self) -> Arc<RuntimeSnapshot>;
     fn submit(&self, source: CommandSource, command: Command);
     fn now_us(&self) -> u64;
+    /// Current musical beat position (for LEDs that blink on the beat).
+    fn beat(&self) -> f64;
     /// Feedback for a controller attached to a remote client.
     fn send_bridge(&self, client: ClientId, device: &str, bytes: Vec<u8>);
 }
@@ -32,6 +34,9 @@ pub struct InputDeviceStatus {
     pub name: String,
     pub kind: String,
     pub connected: bool,
+    /// Messages received from the device since start (clock pulses are not
+    /// counted: they never stop and would keep an activity lamp lit).
+    pub events: u64,
 }
 
 /// Result of MIDI learn.
@@ -66,6 +71,8 @@ enum Raw {
 #[derive(Default)]
 struct Shared {
     statuses: Mutex<BTreeMap<String, InputDeviceStatus>>,
+    /// Messages received per device (survives reconnects).
+    events: Mutex<BTreeMap<String, u64>>,
     learn: Mutex<Option<LearnReply>>,
     profiles: Mutex<BTreeMap<String, ControllerProfile>>,
     #[cfg(feature = "midi")]
@@ -151,11 +158,36 @@ impl InputManager {
         });
     }
 
+    /// Controller profiles available to devices, by id (sorted by name).
+    pub fn profiles(&self) -> Vec<(String, ControllerProfile)> {
+        let mut v: Vec<(String, ControllerProfile)> = self
+            .shared
+            .profiles
+            .lock()
+            .map(|p| p.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+            .unwrap_or_default();
+        v.sort_by(|a, b| a.1.name.to_lowercase().cmp(&b.1.name.to_lowercase()));
+        v
+    }
+
     pub fn statuses(&self) -> Vec<InputDeviceStatus> {
+        let events = self
+            .shared
+            .events
+            .lock()
+            .map(|e| e.clone())
+            .unwrap_or_default();
         self.shared
             .statuses
             .lock()
-            .map(|s| s.values().cloned().collect())
+            .map(|s| {
+                s.values()
+                    .map(|d| InputDeviceStatus {
+                        events: events.get(&d.name).copied().unwrap_or(0),
+                        ..d.clone()
+                    })
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
@@ -196,8 +228,17 @@ fn set_status(shared: &Shared, name: &str, kind: &str, connected: bool) {
                 name: name.to_owned(),
                 kind: kind.to_owned(),
                 connected,
+                events: 0,
             },
         );
+    }
+}
+
+/// Counts one received message of a device (for the activity lamp).
+fn count_event(shared: &Shared, device: &str) {
+    if let Ok(mut e) = shared.events.lock() {
+        let n = e.entry(device.to_owned()).or_insert(0);
+        *n = n.wrapping_add(1);
     }
 }
 
@@ -279,6 +320,7 @@ fn mapper_loop<H: InputHost + ?Sized>(
                         );
                         continue;
                     }
+                    count_event(shared, &device);
                     if let Some((message, _)) = ev.key_value() {
                         let reply = shared.learn.lock().ok().and_then(|mut l| l.take());
                         if let Some(reply) = reply {
@@ -304,6 +346,7 @@ fn mapper_loop<H: InputHost + ?Sized>(
             let show = host.show();
             let rt = host.runtime();
             let blink_on = (start.elapsed().as_millis() / 250).is_multiple_of(2);
+            let beat = host.beat();
             let show_changed = last_show.as_ref().is_none_or(|s| !Arc::ptr_eq(s, &show));
             if show_changed {
                 for f in feedback.values_mut() {
@@ -324,7 +367,14 @@ fn mapper_loop<H: InputHost + ?Sized>(
                     .unwrap_or(10)
                     .max(1);
                 let tracker = feedback.entry(dev.name.clone()).or_default();
-                let msgs = tracker.update(&show, &rt, &dev.name, profile, blink_on, limit);
+                let msgs = tracker.update(
+                    &show,
+                    &rt,
+                    &dev.name,
+                    profile,
+                    FeedbackTime { blink_on, beat },
+                    limit,
+                );
                 for bytes in msgs {
                     send_feedback(host, shared, &dev.name, bytes);
                 }
@@ -503,5 +553,21 @@ fn osc_supervisor<H: InputHost + ?Sized>(
         if !any {
             std::thread::sleep(Duration::from_millis(2));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn events_are_counted_per_device() {
+        let shared = Shared::default();
+        count_event(&shared, "A");
+        count_event(&shared, "A");
+        count_event(&shared, "B");
+        let e = shared.events.lock().map(|e| e.clone()).unwrap_or_default();
+        assert_eq!(e.get("A"), Some(&2));
+        assert_eq!(e.get("B"), Some(&1));
     }
 }

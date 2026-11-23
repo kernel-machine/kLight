@@ -5,6 +5,7 @@ pub mod color_sequence;
 pub mod convert;
 pub mod profile;
 pub mod qxf;
+pub mod qxi;
 mod xml;
 
 use std::collections::BTreeMap;
@@ -14,6 +15,7 @@ use klight_model::{DefinitionKey, FixtureDefinition};
 pub use convert::{Converter, Ignored, Resolved};
 pub use profile::{FixtureProfile, HeadProfile, Slot};
 pub use qxf::parse_qxf;
+pub use qxi::{parse_qxi, InputProfileDef};
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum QxfError {

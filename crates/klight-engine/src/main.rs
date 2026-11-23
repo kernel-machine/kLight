@@ -191,7 +191,9 @@ fn run(args: Args) -> Result<(), String> {
         clock: clock.clone(),
         link: link.clone(),
     });
-    let profiles = klight_input::load_profiles(&args.profiles_dir);
+    // QLC+ input profiles first: a hand-written profile with the same id wins.
+    let mut profiles = klight_input::load_qxi_profiles(&args.qlcplus_profiles_dir);
+    profiles.extend(klight_input::load_profiles(&args.profiles_dir));
     let inputs = Arc::new(
         klight_input::InputManager::start(host.clone(), profiles).map_err(|e| e.to_string())?,
     );
@@ -280,6 +282,7 @@ fn run(args: Args) -> Result<(), String> {
                         name: i.name,
                         kind: i.kind,
                         connected: i.connected,
+                        events: i.events,
                     })
                     .collect(),
                 last_autosave_ms: a.last_show_save_ms,
@@ -318,8 +321,31 @@ fn run(args: Args) -> Result<(), String> {
             })
         }),
         ports: None,
+        input_profiles: None,
     };
     let api_hooks = ApiHooks {
+        input_profiles: Some({
+            let inputs = inputs.clone();
+            Arc::new(move || {
+                inputs
+                    .profiles()
+                    .into_iter()
+                    .map(|(id, p)| klight_api::InputProfileInfo {
+                        id,
+                        name: p.name,
+                        default_active: p.default_active,
+                        behaviors: p
+                            .behaviors
+                            .into_iter()
+                            .map(|b| klight_api::LedBehaviorInfo {
+                                channel: b.channel,
+                                label: b.label,
+                            })
+                            .collect(),
+                    })
+                    .collect()
+            })
+        }),
         ports: Some(Arc::new(|| {
             klight_io::discovery::list_ports()
                 .into_iter()

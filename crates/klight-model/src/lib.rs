@@ -38,7 +38,7 @@ pub use patch::{
     PatchedFixture, Universe, UNIVERSE_SIZE,
 };
 pub use runtime::{
-    ActiveFunction, ChannelOverride, ProgrammerEntry, RuntimeSnapshot, RuntimeState, TempoSource,
-    TempoStatus,
+    beat_flash, ActiveFunction, BeatFlash, ChannelOverride, ProgrammerEntry, RuntimeSnapshot,
+    RuntimeState, TempoSource, TempoStatus,
 };
 pub use show::{Show, ShowSettings, SCHEMA_VERSION};
