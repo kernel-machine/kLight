@@ -19,7 +19,9 @@ fn all_qlcplus_definitions_parse() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/qlcplus");
     // The library is downloaded, not versioned: scripts/update-qlcplus-fixtures.sh
     if !dir.join("LICENSE").exists() {
-        eprintln!("SKIPPED: fixtures/qlcplus not downloaded (run scripts/update-qlcplus-fixtures.sh)");
+        eprintln!(
+            "SKIPPED: fixtures/qlcplus not downloaded (run scripts/update-qlcplus-fixtures.sh)"
+        );
         return;
     }
     let mut files = Vec::new();
