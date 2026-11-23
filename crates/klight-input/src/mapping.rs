@@ -1,7 +1,7 @@
 //! Translation of input events into commands, using the mappings stored in
 //! the show. Includes soft takeover for faders and knobs.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 
 use klight_model::input_map::{InputMessage, InputTarget};
 use klight_model::vc::{SliderMode, WidgetKind};
@@ -70,20 +70,40 @@ impl InputEvent {
 pub struct SoftTakeover {
     engaged: bool,
     last_input: Option<f32>,
-    last_sent: Option<f32>,
+    /// Target value seen at the previous event.
+    last_seen: Option<f32>,
+    /// Values sent since engaging. The target value reaches us through a
+    /// snapshot published after the command is applied, so it lags behind
+    /// what was sent while the control moves fast.
+    recent_sent: VecDeque<f32>,
 }
 
 /// Values closer than this count as "caught".
 pub const TAKEOVER_TOLERANCE: f32 = 2.0 / 127.0;
 
+/// Values we sent are copied exactly, so matching them needs no tolerance
+/// beyond float noise.
+const SENT_MATCH: f32 = 1e-4;
+
+/// How many sent values are remembered to recognise a lagging snapshot.
+const RECENT_SENT: usize = 256;
+
 impl SoftTakeover {
     /// Returns the value to apply, or None while not engaged.
     pub fn feed(&mut self, input: f32, current: f32) -> Option<f32> {
-        // Someone else moved the target: disengage.
-        if let Some(sent) = self.last_sent {
-            if (sent - current).abs() > TAKEOVER_TOLERANCE {
+        // Someone else moved the target: disengage. A change to a value we
+        // sent ourselves is only the snapshot catching up.
+        if self.engaged {
+            let changed = self
+                .last_seen
+                .is_some_and(|seen| (seen - current).abs() > SENT_MATCH);
+            let ours = self
+                .recent_sent
+                .iter()
+                .any(|sent| (sent - current).abs() <= SENT_MATCH);
+            if changed && !ours {
                 self.engaged = false;
-                self.last_sent = None;
+                self.recent_sent.clear();
             }
         }
         if !self.engaged {
@@ -93,11 +113,16 @@ impl SoftTakeover {
                 .is_some_and(|prev| (prev - current).signum() != (input - current).signum());
             if close || crossed {
                 self.engaged = true;
+                self.recent_sent.clear();
             }
         }
         self.last_input = Some(input);
+        self.last_seen = Some(current);
         if self.engaged {
-            self.last_sent = Some(input);
+            if self.recent_sent.len() == RECENT_SENT {
+                self.recent_sent.pop_front();
+            }
+            self.recent_sent.push_back(input);
             Some(input)
         } else {
             None
@@ -225,6 +250,29 @@ impl Mapper {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The engine value reaches the mapper through a snapshot published a
+    /// little later than the command, so while a fader moves fast the
+    /// observed value lags behind what was sent. That is not "someone else
+    /// moved it": the control must stay engaged.
+    #[test]
+    fn soft_takeover_survives_lagging_snapshot() {
+        let mut st = SoftTakeover::default();
+        assert_eq!(st.feed(1.0, 1.0), Some(1.0));
+        let inputs: Vec<f32> = (1..=100).map(|i| 1.0 - i as f32 / 127.0).collect();
+        for lag in [1_usize, 4, 10] {
+            for (i, &input) in inputs.iter().enumerate() {
+                let seen = if i >= lag {
+                    inputs.get(i - lag).copied().unwrap_or(1.0)
+                } else {
+                    1.0
+                };
+                assert_eq!(st.feed(input, seen), Some(input), "lag {lag}, step {i}");
+            }
+            // Back to the top, still lagging.
+            assert_eq!(st.feed(1.0, 1.0), Some(1.0));
+        }
+    }
 
     #[test]
     fn soft_takeover_waits_for_catch() {
