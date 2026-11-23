@@ -4,7 +4,7 @@
 //
 // Call `initCore()` once before using anything else.
 
-import init, { initSync, ShowView, MovementView, MatrixView, linear_to_hex, hex_to_linear, max_sequence_colors, color_sequence_json } from './wasm/klight_wasm.js';
+import init, { initSync, ShowView, MovementView, MatrixView, linear_to_hex, hex_to_linear, max_sequence_colors, color_sequence_json, beat_flash_bits } from './wasm/klight_wasm.js';
 import type {
   ChannelInfo,
   Color,
@@ -124,6 +124,12 @@ export const maxSequenceColors = (): number => max_sequence_colors();
 /** `n` bright, mutually distinct, named colors in color-wheel order. */
 export function colorSequence(n: number): NamedColor[] {
   return JSON.parse(color_sequence_json(Math.max(0, Math.floor(n)))) as NamedColor[];
+}
+
+/** Beat lamp at a musical position (the engine's own function, also used for controller LEDs). */
+export function beatLamp(beat: number, bpm: number, beatsPerBar: number): { on: boolean; down: boolean } {
+  const bits = beat_flash_bits(beat, bpm, Math.max(1, Math.min(255, Math.round(beatsPerBar) || 1)));
+  return { on: (bits & 1) !== 0, down: (bits & 2) !== 0 };
 }
 
 /** Movement effect geometry (degrees), from the engine's own functions. */

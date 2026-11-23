@@ -2,6 +2,7 @@
 
 import { EngineClient, defaultUrl, CommandFailed, type ClientState, type SocketLike } from './client';
 import type { Command } from './protocol';
+import { setBeatAnchor } from './beat';
 
 const params = new URLSearchParams(typeof location !== 'undefined' ? location.search : '');
 
@@ -19,8 +20,15 @@ class AppState {
 }
 
 export const app = new AppState();
+let lastStatus: unknown = null;
 client.subscribe((s) => {
   app.s = s;
+  // A new status carries the beat position: re-anchor the beat lamps.
+  if (s.status && s.status !== lastStatus) {
+    lastStatus = s.status;
+    const tempo = s.runtime?.state.tempo;
+    setBeatAnchor(tempo ? { beat: s.status.beat, at: performance.now(), bpm: tempo.bpm, beatsPerBar: tempo.beats_per_bar } : null);
+  }
 });
 
 let noticeId = 0;

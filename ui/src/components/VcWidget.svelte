@@ -3,6 +3,7 @@
   import type { Widget } from '../lib/protocol';
   import VcWidget from './VcWidget.svelte';
   import Knob from './Knob.svelte';
+  import { createBeatLamp } from '../lib/beatLamp.svelte';
 
   let {
     widget,
@@ -36,6 +37,10 @@
     const timer = setInterval(() => (now = new Date()), 1000);
     return () => clearInterval(timer);
   });
+
+  // Tap buttons and the speed dial blink on the beat.
+  const isTap = $derived((widget.kind.type === 'button' && widget.kind.action === 'TapTempo') || widget.kind.type === 'speed_dial');
+  const beat = createBeatLamp(() => isTap);
 
   let drag: { x: number; y: number } | null = null;
   let offset = $state({ x: 0, y: 0 });
@@ -88,6 +93,8 @@
   class="w {widget.kind.type}"
   class:sel={design && selected === widget.id}
   class:on={isOn}
+  class:beat={beat.on}
+  class:down={beat.on && beat.down}
   style="left:{p.x + offset.x}px; top:{p.y + offset.y}px; width:{p.width}px; height:{p.height}px; --c:{color}"
   onpointerdown={down}
   onpointermove={move}
@@ -137,6 +144,8 @@
   .w { position: absolute; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel-2); display: flex; flex-direction: column; align-items: center; justify-content: center; user-select: none; overflow: hidden; touch-action: none; }
   .w.button, .w.cue_list, .w.speed_dial { cursor: pointer; border-color: var(--c); }
   .w.button.on { background: var(--c); color: #000; font-weight: 700; }
+  .w.beat { background: color-mix(in srgb, var(--c) 55%, var(--panel-2)); }
+  .w.beat.down { background: var(--c); color: #000; }
   .w.frame, .w.solo_frame { justify-content: flex-start; background: color-mix(in srgb, var(--panel) 80%, transparent); }
   .w.label { border: none; background: transparent; }
   .sel { outline: 2px dashed var(--warn); }

@@ -1,11 +1,33 @@
 <script lang="ts">
   import { app, client, run, notify } from '../lib/app.svelte';
-  import { nextId } from '../lib/show';
-  import type { InputDeviceConfig, InputMapping, InputMessage, InputTarget, OutputKind, SerialPortInfo, Universe } from '../lib/protocol';
+  import { describeInputMessage as describeMsg, nextId } from '../lib/show';
+  import type { InputDeviceConfig, InputMapping, InputProfileInfo, InputTarget, LedBehavior, OutputKind, SerialPortInfo, Universe } from '../lib/protocol';
 
   const show = $derived(app.s.show!);
   const status = $derived(app.s.status);
   let ports = $state<SerialPortInfo[]>([]);
+  let profiles = $state<InputProfileInfo[]>([]);
+  async function loadProfiles() {
+    try {
+      const r = await fetch('/api/input-profiles');
+      profiles = r.ok ? await r.json() : [];
+    } catch {
+      profiles = [];
+    }
+  }
+  $effect(() => {
+    loadProfiles();
+  });
+  const profileOf = (d: InputDeviceConfig) => profiles.find((p) => p.id === d.profile);
+
+  /** Menu value of an LED behaviour: '' = profile default, 'off', or 'c<channel>'. */
+  const lookKey = (b: LedBehavior | null | undefined) => (!b ? '' : b.type === 'off' ? 'off' : `c${b.channel}`);
+  const lookFromKey = (key: string): LedBehavior | null =>
+    key === '' ? null : key === 'off' ? { type: 'off' } : { type: 'channel', channel: Number(key.slice(1)) };
+  function setLook(i: number, field: 'feedback_active' | 'feedback_inactive', key: string) {
+    saveDevices(show.input_devices.map((x, j) => (j === i ? { ...x, [field]: lookFromKey(key) } : x)));
+  }
+
   let learning = $state(false);
   let learnTarget = $state<string>('grand_master');
 
@@ -32,12 +54,6 @@
 
   function saveDevices(devices: InputDeviceConfig[]) {
     run({ type: 'set_input_devices', devices });
-  }
-
-  function describeMsg(m: InputMessage) {
-    if (m.type === 'midi_note') return `Note ${m.note} ch ${m.channel + 1}`;
-    if (m.type === 'midi_cc') return `CC ${m.controller} ch ${m.channel + 1}`;
-    return `OSC ${m.path}`;
   }
 
   function targetFromKey(key: string): InputTarget {
@@ -127,18 +143,39 @@
     {#each show.input_devices as d, i (i)}
       <div class="row">
         <b>{d.name}</b> <span class="muted">{d.kind.type === 'osc' ? `OSC :${d.kind.port}` : 'MIDI'}</span>
-        <input placeholder="profile (e.g. akai-apc-mini)" value={d.profile ?? ''} onchange={(e) => saveDevices(show.input_devices.map((x, j) => (j === i ? { ...x, profile: e.currentTarget.value || null } : x)))} />
+        <select aria-label="Controller profile" value={d.profile ?? ''} onchange={(e) => saveDevices(show.input_devices.map((x, j) => (j === i ? { ...x, profile: e.currentTarget.value || null, feedback_active: null, feedback_inactive: null } : x)))}>
+          <option value="">— no LED feedback —</option>
+          {#each profiles as p (p.id)}<option value={p.id}>{p.name}</option>{/each}
+          {#if d.profile && !profileOf(d)}<option value={d.profile}>{d.profile} (not found)</option>{/if}
+        </select>
         <button onclick={() => saveDevices(show.input_devices.filter((_, j) => j !== i))}>×</button>
       </div>
+      {@const prof = profileOf(d)}
+      {#if prof && prof.behaviors.length}
+        <div class="row look">
+          <label>When on (function running)
+            <select value={lookKey(d.feedback_active)} onchange={(e) => setLook(i, 'feedback_active', e.currentTarget.value)}>
+              <option value="">Default{prof.behaviors.find((b) => b.channel === prof.default_active) ? ` (${prof.behaviors.find((b) => b.channel === prof.default_active)?.label})` : ''}</option>
+              {#each prof.behaviors as b (b.channel)}<option value={`c${b.channel}`}>{b.label}</option>{/each}
+            </select>
+          </label>
+          <label>When off
+            <select value={lookKey(d.feedback_inactive)} onchange={(e) => setLook(i, 'feedback_inactive', e.currentTarget.value)}>
+              <option value="">Off</option>
+              {#each prof.behaviors as b (b.channel)}<option value={`c${b.channel}`}>{b.label}</option>{/each}
+            </select>
+          </label>
+        </div>
+      {/if}
     {/each}
     <div class="row">
       {#each (status?.inputs ?? []).filter((i) => i.kind === 'midi' && !show.input_devices.some((d) => d.name === i.name)) as i (i.name)}
-        <button onclick={() => saveDevices([...show.input_devices, { name: i.name, kind: { type: 'midi' }, profile: null }])}>+ {i.name}</button>
+        <button onclick={() => saveDevices([...show.input_devices, { name: i.name, kind: { type: 'midi' }, profile: null, feedback_active: null, feedback_inactive: null }])}>+ {i.name}</button>
       {/each}
     </div>
     <div class="row">
       <input bind:value={newOscName} style="width:120px" /> <input type="number" bind:value={newOscPort} style="width:90px" />
-      <button onclick={() => saveDevices([...show.input_devices, { name: newOscName, kind: { type: 'osc', port: newOscPort }, profile: null }])}>+ OSC listener</button>
+      <button onclick={() => saveDevices([...show.input_devices, { name: newOscName, kind: { type: 'osc', port: newOscPort }, profile: null, feedback_active: null, feedback_inactive: null }])}>+ OSC listener</button>
     </div>
     <h3>Mappings</h3>
     <table>

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { beatFlash } from './beat';
 import { channelMap, colorSequence, frameFromFunctions, functionsUnder, functionColor, groupFixtureIds, groupRows, groupWithFixtures, conflictsWith, maxSequenceColors, nextFreeAddress, parseTime, hexToColor, colorToHex } from './show';
 import type { Show } from './protocol';
 
@@ -206,5 +207,20 @@ describe('groupRows', () => {
     };
     expect(groupRows(s, g, 1).map((r) => [r.fixture.id, r.head])).toEqual([[3, null], [1, null]]);
     expect(groupRows(s, g, 2)).toEqual([]);
+  });
+});
+
+describe('beat flash', () => {
+  const a = { beat: 8, at: 1000, bpm: 120, beatsPerBar: 4 }; // a beat every 500 ms
+  it('lights at the start of each beat and marks the first beat of a bar', () => {
+    expect(beatFlash(a, 1000)).toEqual({ on: true, down: true }); // beat 8, bar start
+    expect(beatFlash(a, 1100)).toEqual({ on: true, down: true }); // 100 ms in
+    expect(beatFlash(a, 1300).on).toBe(false);
+    expect(beatFlash(a, 1500)).toEqual({ on: true, down: false }); // beat 9
+    expect(beatFlash(a, 3000)).toEqual({ on: true, down: true }); // beat 12
+  });
+  it('is off without a tempo', () => {
+    expect(beatFlash(null, 0).on).toBe(false);
+    expect(beatFlash({ ...a, bpm: 0 }, 1000).on).toBe(false);
   });
 });

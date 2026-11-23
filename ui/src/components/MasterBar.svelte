@@ -1,10 +1,12 @@
 <script lang="ts">
   // Blackout and grand master: always reachable.
   import { app, run } from '../lib/app.svelte';
+  import { createBeatLamp } from '../lib/beatLamp.svelte';
 
   const rt = $derived(app.s.runtime?.state);
   const disabled = $derived(app.s.connection !== 'connected' || app.s.permission === 'read_only');
   let pin = $state('');
+  const beat = createBeatLamp();
 
   async function toggleMode() {
     if (!rt) return;
@@ -30,7 +32,7 @@
   >
     {rt?.blackout ? 'BLACKOUT ON' : 'Blackout'}
   </button>
-  <button class="tap" {disabled} onclick={() => run({ type: 'tap_tempo' })}>
+  <button class="tap" class:beat={beat.on} class:down={beat.on && beat.down} {disabled} onclick={() => run({ type: 'tap_tempo' })}>
     Tap
     <span class="bpm">{rt ? rt.tempo.bpm.toFixed(1) : '--'} BPM</span>
   </button>
@@ -57,6 +59,9 @@
   .blackout.on { background: var(--danger); border-color: var(--danger); color: #fff; }
   .mode.show { background: var(--warn); color: #000; border-color: var(--warn); font-weight: 800; }
   .tap { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .tap.beat { background: color-mix(in srgb, var(--accent) 60%, var(--panel-2)); border-color: var(--accent); }
+  .tap.beat.down { background: var(--accent); color: #000; }
+  .tap.beat .bpm { color: inherit; }
   .bpm { font-size: 11px; font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; }
   .gm { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; min-height: 160px; border-top: 1px solid var(--border); padding-top: 8px; }
   .gm input { flex: 1; writing-mode: vertical-lr; direction: rtl; width: 44px; min-height: 120px; }
