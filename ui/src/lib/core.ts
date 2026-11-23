@@ -4,7 +4,7 @@
 //
 // Call `initCore()` once before using anything else.
 
-import init, { initSync, ShowView, MovementView, MatrixView, linear_to_hex, hex_to_linear } from './wasm/klight_wasm.js';
+import init, { initSync, ShowView, MovementView, MatrixView, linear_to_hex, hex_to_linear, max_sequence_colors, color_sequence_json } from './wasm/klight_wasm.js';
 import type {
   ChannelInfo,
   Color,
@@ -110,6 +110,20 @@ export function colorToHex(c: Color): string {
 export function hexToColor(hex: string): Color {
   const [r = 0, g = 0, b = 0] = hex_to_linear(hex);
   return { r, g, b };
+}
+
+export interface NamedColor {
+  name: string;
+  /** Linear RGB. */
+  color: Color;
+}
+
+/** Most colors `colorSequence` can return. */
+export const maxSequenceColors = (): number => max_sequence_colors();
+
+/** `n` bright, mutually distinct, named colors in color-wheel order. */
+export function colorSequence(n: number): NamedColor[] {
+  return JSON.parse(color_sequence_json(Math.max(0, Math.floor(n)))) as NamedColor[];
 }
 
 /** Movement effect geometry (degrees), from the engine's own functions. */

@@ -17,6 +17,7 @@ export const UNIVERSE_SIZE = 512;
 // Logic that must match the engine comes from the core (WebAssembly).
 export {
   channelMap,
+  colorSequence,
   colorToHex,
   conflictsWith,
   fixtureInfo,
@@ -25,6 +26,7 @@ export {
   hasPosition,
   headCount,
   hexToColor,
+  maxSequenceColors,
   nextFreeAddress,
 } from './core';
 import { colorToHex } from './core';

@@ -11,6 +11,7 @@
 use klight_engine_core::compile::CompiledShow;
 use klight_engine_core::effects::{head_phase, matrix_cell_color, matrix_phase, movement_point};
 use klight_engine_core::preview::scene_preview;
+use klight_fixtures::color_sequence;
 use klight_model::inspect::{self, FixturePreview};
 use klight_model::{
     Color, FixtureId, FunctionId, GroupId, GroupLayout, MatrixEffect, MovementEffect, Rgb8, Show,
@@ -235,9 +236,47 @@ pub fn hex_to_linear(hex: &str) -> Vec<f32> {
     vec![c.r, c.g, c.b]
 }
 
+/// Most colors `color_sequence` can return.
+#[wasm_bindgen]
+pub fn max_sequence_colors() -> u32 {
+    u32::try_from(color_sequence::MAX_SEQUENCE_COLORS).unwrap_or(u32::MAX)
+}
+
+/// JSON `{ name, color }[]`: `n` bright, mutually distinct, named colors
+/// (linear RGB), in color-wheel order from red.
+#[wasm_bindgen]
+pub fn color_sequence_json(n: u32) -> String {
+    #[derive(serde::Serialize)]
+    struct Named {
+        name: &'static str,
+        color: Color,
+    }
+    let colors: Vec<Named> = color_sequence::color_sequence(n as usize)
+        .into_iter()
+        .map(|c| Named {
+            name: c.name,
+            color: c.color,
+        })
+        .collect();
+    to_json(&colors)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn color_sequence_json_shape() {
+        let v: serde_json::Value = serde_json::from_str(&color_sequence_json(3)).unwrap();
+        let names: Vec<&str> = v
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(names, ["Red", "Green", "Blue"]);
+        assert!(max_sequence_colors() >= 3);
+    }
 
     #[test]
     fn colors_roundtrip() {

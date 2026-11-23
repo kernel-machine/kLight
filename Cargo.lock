@@ -814,6 +814,7 @@ name = "klight-wasm"
 version = "0.1.0"
 dependencies = [
  "klight-engine-core",
+ "klight-fixtures",
  "klight-model",
  "serde",
  "serde_json",

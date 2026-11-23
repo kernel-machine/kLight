@@ -127,6 +127,14 @@
     }
   }
 
+  /** Color a value sets (explicit, or from a color palette), as a CSS color. */
+  function swatch(sv: SceneValue): string | null {
+    if (sv.value.type === 'explicit') return sv.value.value.type === 'color' ? colorToHex(sv.value.value.color) : null;
+    const id = sv.value.id;
+    const first = show.palettes.find((p) => p.id === id)?.generic.find((v) => v.type === 'color');
+    return first?.type === 'color' ? colorToHex(first.color) : null;
+  }
+
   const describe = (sv: SceneValue) =>
     sv.value.type === 'explicit'
       ? describeValue(sv.value.value)
@@ -139,7 +147,10 @@
     {#each scene.values as sv, i (i)}
       <tr>
         <td>{describeTarget(show, sv.target)}</td>
-        <td class="muted">{describe(sv)}</td>
+        <td class="muted">
+          {#if swatch(sv) !== null}<span class="swatch" style="background:{swatch(sv)}" title={swatch(sv)}></span>{/if}
+          {describe(sv)}
+        </td>
         <td class="actions">
           <button onclick={() => load(sv)}>Edit</button>
           <button onclick={() => removeValue(sv)}>×</button>
@@ -213,5 +224,6 @@
 
 <style>
   .add { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; background: var(--panel-2); }
+  .swatch { display: inline-block; width: 18px; height: 18px; border-radius: 4px; border: 1px solid var(--border); vertical-align: middle; margin-right: 6px; }
   .actions { text-align: right; white-space: nowrap; }
 </style>

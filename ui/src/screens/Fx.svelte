@@ -1,7 +1,7 @@
 <script lang="ts">
   // Functions: scenes, chasers, cue lists, effects, palettes.
   import { app, run } from '../lib/app.svelte';
-  import { describeTarget, describeValue, formatTime, hexToColor, nextId, parseTime } from '../lib/show';
+  import { colorSequence, colorToHex, describeTarget, describeValue, formatTime, hexToColor, maxSequenceColors, nextId, parseTime } from '../lib/show';
   import type { Cue, Function as Fn, FunctionKind, SceneValue, TimeValue } from '../lib/protocol';
   import SceneEditor from '../components/SceneEditor.svelte';
   import MovementEditor from '../components/MovementEditor.svelte';
@@ -59,6 +59,37 @@
       .sort((a, b) => a[1].localeCompare(b[1], undefined, { numeric: true }));
   }
 
+  // Color sequence: one scene per color, for a group. The colors come from the core.
+  const maxColors = maxSequenceColors();
+  let seqGroup = $state<number | null>(null);
+  let seqCount = $state(3);
+  let seqBusy = $state(false);
+  const seqGroupId = $derived(show.groups.some((g) => g.id === seqGroup) ? seqGroup : (show.groups[0]?.id ?? null));
+  const seqN = $derived(Math.min(maxColors, Math.max(1, Math.floor(Number.isFinite(seqCount) ? seqCount : 1))));
+  const seqPreview = $derived(colorSequence(seqN));
+
+  async function generateColorScenes() {
+    const group = show.groups.find((g) => g.id === seqGroupId);
+    if (!group || seqBusy) return;
+    seqBusy = true;
+    try {
+      const folder = nextId(show.function_folders);
+      if (!(await run({ type: 'set_function_folder', folder: { id: folder, category: 'scene', name: `${group.name} colors`, parent: null } }))) return;
+      const first = nextId(show.functions);
+      const target = { type: 'group', id: group.id } as const;
+      for (const [i, c] of seqPreview.entries()) {
+        const values: SceneValue[] = [
+          { target, value: { type: 'explicit', value: { type: 'intensity', level: 1 } } },
+          { target, value: { type: 'explicit', value: { type: 'color', color: c.color } } },
+        ];
+        const kind: FunctionKind = { type: 'scene', values, timing: { delay: { ms: 0 }, fade_in: { ms: 0 }, fade_out: { ms: 0 } }, spread: { type: 'none' }, attribute_timing: [] };
+        if (!(await save({ id: first + i, name: c.name, kind, folder }))) return;
+      }
+    } finally {
+      seqBusy = false;
+    }
+  }
+
   function updateKind(f: Fn, kind: FunctionKind) {
     save({ ...f, kind });
   }
@@ -68,6 +99,26 @@
   <section class="panel list">
     <h2>Functions</h2>
     <FunctionTree {selectedId} onselect={(id) => (selectedId = id)} oncreate={(category, folder) => create(category, folder)} />
+    <details class="seq">
+      <summary>Color sequence</summary>
+    {#if show.groups.length}
+      <div class="row">
+        <select aria-label="Group" value={seqGroupId} onchange={(e) => (seqGroup = Number(e.currentTarget.value))}>
+          {#each show.groups as g (g.id)}<option value={g.id}>{g.name}</option>{/each}
+        </select>
+        <label class="row">Colors
+          <input type="number" min="1" max={maxColors} step="1" style="width: 5em" bind:value={seqCount} />
+        </label>
+        <button class="primary" disabled={seqBusy} onclick={generateColorScenes}>Create {seqN} scene{seqN === 1 ? '' : 's'}</button>
+      </div>
+      <div class="row swatches">
+        {#each seqPreview as c (c.name)}
+          <span class="swatch" title={c.name}><i style="background:{colorToHex(c.color)}"></i>{c.name}</span>
+        {/each}
+      </div>
+      <span class="muted">Up to {maxColors} colors. One scene per color, in a folder, at full intensity.</span>
+    {:else}<span class="muted">Create a fixture group first.</span>{/if}
+    </details>
     <h3>Palettes</h3>
     {#each show.palettes as p (p.id)}
       <div class="row"><span>{p.name}</span><span class="badge">{p.kind}</span><span class="muted">{p.per_fixture.length} fixtures</span>
@@ -165,7 +216,12 @@
 <style>
   .fx { display: grid; grid-template-columns: minmax(280px, 1fr) 2fr; gap: 12px; }
   @media (max-width: 900px) { .fx { grid-template-columns: 1fr; } }
+  .seq { margin-top: 12px; }
+  .seq summary { cursor: pointer; font-weight: 600; margin-bottom: 8px; }
   tr { cursor: pointer; }
+  .swatches { flex-wrap: wrap; gap: 6px; }
+  .swatch { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
+  .swatch i { width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--border); }
   .current { background: color-mix(in srgb, var(--accent) 20%, transparent); }
   .big { font-size: 20px; padding: 10px 28px; }
 </style>

@@ -1,6 +1,7 @@
 //! Fixture definitions: QLC+ `.qxf` parsing, resolved profiles and unit
 //! conversions. Pure code: reading files from disk is up to the caller.
 
+pub mod color_sequence;
 pub mod convert;
 pub mod profile;
 pub mod qxf;

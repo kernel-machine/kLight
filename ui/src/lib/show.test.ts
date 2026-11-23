@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { channelMap, conflictsWith, nextFreeAddress, parseTime, hexToColor, colorToHex } from './show';
+import { channelMap, colorSequence, conflictsWith, maxSequenceColors, nextFreeAddress, parseTime, hexToColor, colorToHex } from './show';
 import type { Show } from './protocol';
 
 const def = {
@@ -103,5 +103,13 @@ describe('group grid', () => {
     expect(r.grid_height).toBe(2);
     expect(r.members.every((m) => m.grid!.x < 2 && m.grid!.y < 2)).toBe(true);
     expect(new Set(r.members.map((m) => `${m.grid!.x},${m.grid!.y}`)).size).toBe(3);
+  });
+});
+
+describe('color sequence (from the core)', () => {
+  it('gives named colors, capped at the maximum', () => {
+    expect(colorSequence(3).map((c) => c.name)).toEqual(['Red', 'Green', 'Blue']);
+    expect(colorSequence(1000)).toHaveLength(maxSequenceColors());
+    expect(colorToHex(colorSequence(1)[0]!.color)).toBe('#ff0000');
   });
 });
