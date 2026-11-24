@@ -201,12 +201,18 @@ fn slow_driver_does_not_slow_the_tick_loop() {
     let rig = rig();
     let u1 = rig.factory.recorder("u1");
     wait_for("frames", Duration::from_secs(5), || lit(&u1));
-    u1.set_faults(|f| f.latency = Some(Duration::from_millis(200)));
+    // Each send blocks the driver for 500 ms. If the tick loop waited on the
+    // driver it could run at most ~3 ticks in the 1 s window below; decoupled
+    // it runs ~44 (44 Hz). The threshold sits far from both so that a starved
+    // CI runner (e.g. macOS, with the other chaos tests spinning in parallel)
+    // does not make the test flaky while a real coupling is still caught.
+    u1.set_faults(|f| f.latency = Some(Duration::from_millis(500)));
     let t0 = rig.shared.stats.ticks.load(Ordering::Relaxed);
-    std::thread::sleep(Duration::from_millis(500));
+    let start = Instant::now();
+    std::thread::sleep(Duration::from_secs(1));
     let ticks = rig.shared.stats.ticks.load(Ordering::Relaxed) - t0;
-    // 44 Hz for 0.5 s ~ 22 ticks; allow scheduling slack on CI.
-    assert!(ticks >= 15, "only {ticks} ticks");
+    let elapsed = start.elapsed();
+    assert!(ticks >= 10, "only {ticks} ticks in {elapsed:?}");
 }
 
 impl Drop for Rig {
