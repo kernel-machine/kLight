@@ -5,6 +5,7 @@
   import { app, client } from '../lib/app.svelte';
   import { scenePreview } from '../lib/core';
   import type { PreviewChannel } from '../lib/protocol';
+  import ChannelIcon from './ChannelIcon.svelte';
 
   let { functionId }: { functionId: number } = $props();
   const show = $derived(app.s.show!);
@@ -44,7 +45,7 @@
             {@const now = live(f.universe, c.address)}
             <tr class:differs={now !== null && now !== c.value}>
               <td class="num">{c.address ?? '—'}{c.fine_address !== null ? `/${c.fine_address}` : ''}</td>
-              <td>{c.channel_name}</td>
+              <td><span class="chan"><ChannelIcon attribute={c.attribute} />{c.channel_name}</span></td>
               <td class="value">
                 <span class="bar"><span style="width:{pct(c.value)}"></span></span>
                 <span class="num" title={fine(c) !== null ? `16-bit value ${fine(c)} of 65535` : ''}>{c.value}</span>
@@ -66,6 +67,7 @@
   .head { display: flex; justify-content: space-between; padding: 2px 4px 6px; }
   table { font-size: 12px; }
   td, th { padding: 2px 6px; }
+  .chan { display: inline-flex; align-items: center; gap: 6px; }
   .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
   .value { display: flex; align-items: center; gap: 6px; }
   .bar { flex: 1; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; min-width: 40px; }

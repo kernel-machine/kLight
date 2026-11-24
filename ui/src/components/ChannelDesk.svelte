@@ -4,6 +4,7 @@
   // until it is released.
   import { app, client, run } from '../lib/app.svelte';
   import { channelMap, UNIVERSE_SIZE } from '../lib/show';
+  import ChannelIcon from './ChannelIcon.svelte';
 
   const show = $derived(app.s.show!);
   let universe = $state(app.s.show?.universes[0]?.id ?? 1);
@@ -89,6 +90,7 @@
       title={info ? `${info.fixture_name} — ${info.channel_name}` : 'Not patched'}
     >
       <div class="addr">{a}</div>
+      <div class="icon">{#if info}<ChannelIcon attribute={info.attribute} />{/if}</div>
       <div class="name">{info ? (info.offset === 0 ? info.fixture_name : '') : ''}</div>
       <div class="ch">{info?.channel_name ?? '—'}</div>
       <input
@@ -122,6 +124,7 @@
   .strip.patched.alt { background: color-mix(in srgb, var(--ok) 8%, var(--panel)); }
   .strip.first { border-left: 3px solid var(--accent); }
   .strip.set { border-color: var(--warn); box-shadow: inset 0 0 0 1px var(--warn); }
+  .icon { height: 16px; }
   .addr { font-weight: 700; font-variant-numeric: tabular-nums; font-size: 12px; }
   .name, .ch { font-size: 9px; color: var(--muted); width: 100%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; height: 11px; }
   .name { color: var(--text); }

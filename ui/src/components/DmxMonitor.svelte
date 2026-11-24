@@ -3,6 +3,7 @@
   // every channel says what it is.
   import { app, client, pref, setPref } from '../lib/app.svelte';
   import { channelMap, groupColor, groupsOf, GROUP_COLORS } from '../lib/show';
+  import ChannelIcon from './ChannelIcon.svelte';
 
   let { onclose }: { onclose: () => void } = $props();
   let universe = $state(app.s.show?.universes[0]?.id ?? 1);
@@ -122,7 +123,7 @@
           {#if groups[0]}<span class="g" style="background:{groupColor(show, groups[0].id)}"></span>{/if}
         </div>
         <span class="fixture">{info?.offset === 0 ? info.fixture_name : ''}</span>
-        <span class="ch">{info?.channel_name ?? ''}</span>
+        <span class="ch">{#if info}<ChannelIcon attribute={info.attribute} size={11} />{' '}{/if}{info?.channel_name ?? ''}</span>
         <span class="v">{v}</span>
         <div class="bar"></div>
       </div>

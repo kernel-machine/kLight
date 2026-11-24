@@ -3,6 +3,7 @@
   import { app, run, notify } from '../../lib/app.svelte';
   import { conflictsWith, defKey, nextFreeAddress, nextId } from '../../lib/show';
   import type { FixtureDefinition, LibraryEntry, PatchedFixture } from '../../lib/protocol';
+  import ChannelIcon from '../ChannelIcon.svelte';
 
   let { defaultUniverse }: { defaultUniverse: number } = $props();
   const show = $derived(app.s.show!);
@@ -182,7 +183,7 @@
               {@const ch = selectedDef.channels[ci]}
               <tr>
                 <td class="num">{i + 1}</td>
-                <td>{ch?.name ?? `Channel ${i + 1}`}{ch?.byte === 'Fine' ? ' (fine)' : ''}</td>
+                <td><span class="chan">{#if ch}<ChannelIcon attribute={ch.attribute} />{/if}{ch?.name ?? `Channel ${i + 1}`}{ch?.byte === 'Fine' ? ' (fine)' : ''}</span></td>
                 <td class="muted">{ch?.attribute ?? ''}</td>
                 {#if headOf.size}<td class="muted">{headOf.get(i) ?? '—'}</td>{/if}
               </tr>
@@ -216,6 +217,7 @@
 <style>
   .channels { max-height: 260px; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius); }
   .channels table { font-size: 13px; }
+  .chan { display: inline-flex; align-items: center; gap: 8px; }
   .channels th { position: sticky; top: 0; background: var(--panel); }
   .channels td, .channels th { padding: 3px 8px; }
   .num { font-variant-numeric: tabular-nums; color: var(--muted); width: 40px; }

@@ -3,6 +3,7 @@
   import { app, run } from '../../lib/app.svelte';
   import { conflictsWith, definitionOf, footprint, groupColor, groupsOf, hasColorMixing, hasPosition, modeOf } from '../../lib/show';
   import type { Orientation, PatchedFixture } from '../../lib/protocol';
+  import ChannelIcon from '../ChannelIcon.svelte';
 
   let { id, onclose }: { id: number; onclose: () => void } = $props();
   const show = $derived(app.s.show!);
@@ -81,7 +82,7 @@
       <tbody>
         {#each mode.channels as ci, i (i)}
           {@const ch = def.channels[ci]}
-          <tr><td class="muted">{f.address + i}</td><td>{ch?.name}</td><td class="muted">{ch?.attribute}</td></tr>
+          <tr><td class="muted">{f.address + i}</td><td><span class="chan">{#if ch}<ChannelIcon attribute={ch.attribute} />{/if}{ch?.name}</span></td><td class="muted">{ch?.attribute}</td></tr>
         {/each}
       </tbody>
     </table>
@@ -98,5 +99,6 @@
   .grid label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
   .grid input, .grid select { color: var(--text); }
   .small { font-size: 12px; }
+  .chan { display: inline-flex; align-items: center; gap: 8px; }
   .channels td { padding: 3px 8px; font-size: 13px; }
 </style>
