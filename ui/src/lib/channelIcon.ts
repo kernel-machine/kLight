@@ -2,7 +2,7 @@
 // exhaustive: a new attribute in the core stops the UI from compiling until it
 // is given an icon here.
 
-import type { Attribute } from './protocol';
+import type { Attribute, CapabilityKind, ChannelPreset } from './protocol';
 
 export type ChannelIconKind =
   | { type: 'bulb' }
@@ -98,3 +98,20 @@ export function channelIconLabel(a: Attribute): string {
       return a.replace(/([a-z])([A-Z])/g, '$1 $2');
   }
 }
+
+const css = (c: { r: number; g: number; b: number }) => `rgb(${c.r}, ${c.g}, ${c.b})`;
+
+/** CSS background showing a preset's color (split slots show both colors), or null. */
+export function presetSwatch(kind: CapabilityKind): string | null {
+  if (kind.type !== 'Color') return null;
+  if (!kind.color2) return css(kind.color);
+  return `linear-gradient(90deg, ${css(kind.color)} 50%, ${css(kind.color2)} 50%)`;
+}
+
+/** Index of the preset whose range holds `value`, or -1. */
+export function presetAt(presets: ChannelPreset[], value: number): number {
+  return presets.findIndex((p) => value >= p.min && value <= p.max);
+}
+
+/** A channel offers a choice only if it has more than one named range. */
+export const hasPresets = (presets: ChannelPreset[]): boolean => presets.length > 1;

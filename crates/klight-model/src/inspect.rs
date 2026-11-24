@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::attributes::{AttributeValue, Color};
-use crate::fixture_def::Attribute;
+use crate::fixture_def::{Attribute, CapabilityKind, ChannelByte};
 use crate::function::{FunctionKind, SceneValue, Target, ValueSource};
 use crate::ids::{FixtureId, FunctionId, UniverseId};
 use crate::patch::{PatchedFixture, UNIVERSE_SIZE};
@@ -103,6 +103,203 @@ pub fn channel_map(show: &Show, universe: UniverseId) -> Vec<Option<ChannelInfo>
         }
     }
     map
+}
+
+/// A named preset of a channel: a DMX range with a meaning (a color wheel
+/// slot, a gobo, a shutter mode, ...).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct ChannelPreset {
+    pub name: String,
+    pub min: u8,
+    pub max: u8,
+    /// DMX value that selects the preset: the one scenes and effects use for
+    /// it (the middle of the range).
+    pub value: u8,
+    pub kind: CapabilityKind,
+}
+
+/// The presets of the channel patched at `address` (1-based) of a universe,
+/// in definition order. Empty for an unpatched address, a fine byte (its
+/// coarse channel holds the presets) and channels without named ranges.
+pub fn channel_presets(show: &Show, universe: UniverseId, address: u16) -> Vec<ChannelPreset> {
+    // Same rule as `channel_map`: on a conflicting patch the first fixture
+    // (by address, then id) keeps the address.
+    let mut fixtures: Vec<&PatchedFixture> = show
+        .fixtures
+        .iter()
+        .filter(|f| f.universe == universe)
+        .collect();
+    fixtures.sort_by_key(|f| (f.address, f.id));
+    for f in fixtures {
+        let Some((def, mode)) = show.definition_and_mode(f) else {
+            continue;
+        };
+        // 0-based slots, computed like `channel_map` does.
+        let Some(slot) = address.checked_sub(1) else {
+            return Vec::new();
+        };
+        let Some(offset) = slot.checked_sub(f.address.saturating_sub(1)) else {
+            continue;
+        };
+        let Some(&ci) = mode.channels.get(usize::from(offset)) else {
+            continue;
+        };
+        let Some(ch) = def.channels.get(usize::from(ci)) else {
+            return Vec::new();
+        };
+        if ch.byte == ChannelByte::Fine {
+            return Vec::new();
+        }
+        return ch
+            .capabilities
+            .iter()
+            .filter(|c| !c.name.trim().is_empty())
+            .map(|c| ChannelPreset {
+                name: c.name.trim().to_owned(),
+                min: c.min.min(c.max),
+                max: c.min.max(c.max),
+                value: c.midpoint(),
+                kind: c.kind.clone(),
+            })
+            .collect();
+    }
+    Vec::new()
+}
+
+/// A color a color-wheel fixture can show: one slot of its wheel.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct WheelColor {
+    pub name: String,
+    pub color: Color,
+}
+
+/// Which colors make sense for some fixtures.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct ColorChoices {
+    /// Slots of the color wheels of the fixtures that have no color mixing
+    /// (the colors a requested color snaps to), in wheel order, each color
+    /// once.
+    pub wheel: Vec<WheelColor>,
+    /// Any color is meaningful: a fixture mixes colors, or none has a wheel.
+    pub free: bool,
+}
+
+/// Attributes through which the engine mixes a requested color (before it
+/// falls back to a color wheel).
+fn mixes_color(a: Attribute) -> bool {
+    matches!(
+        a,
+        Attribute::Red
+            | Attribute::Green
+            | Attribute::Blue
+            | Attribute::Cyan
+            | Attribute::Magenta
+            | Attribute::Yellow
+    )
+}
+
+/// Colors available on `fixtures`. Follows how the engine resolves a color
+/// (a fixture with red/green/blue or cyan/magenta/yellow channels mixes it,
+/// otherwise a color wheel snaps to the nearest single-color slot, and an
+/// open slot counts as white).
+///
+/// Known limits: the engine decides per head, this per fixture (a fixture
+/// with an RGB head and a wheel head counts as mixing, and only its first
+/// wheel is listed); and it ignores a fixture's color calibration, which the
+/// engine applies before snapping to a slot. Neither happens with the
+/// fixtures and settings the UI offers today (calibration is only offered
+/// for fixtures that mix colors).
+pub fn color_choices(show: &Show, fixtures: &[FixtureId]) -> ColorChoices {
+    let mut wheel: Vec<WheelColor> = Vec::new();
+    let mut mixes = false;
+    for id in fixtures {
+        let Some(f) = show.fixture(*id) else { continue };
+        let Some((def, mode)) = show.definition_and_mode(f) else {
+            continue;
+        };
+        let channels: Vec<&crate::fixture_def::ChannelDef> = mode
+            .channels
+            .iter()
+            .filter_map(|&ci| def.channels.get(usize::from(ci)))
+            .collect();
+        if channels.iter().any(|c| mixes_color(c.attribute)) {
+            mixes = true;
+            continue;
+        }
+        let Some(ch) = channels
+            .iter()
+            .find(|c| c.attribute == Attribute::ColorWheel)
+        else {
+            continue;
+        };
+        for cap in &ch.capabilities {
+            let color = match cap.kind {
+                CapabilityKind::Color {
+                    color,
+                    color2: None,
+                } => Color::from_srgb8(color),
+                CapabilityKind::Open => Color::WHITE,
+                _ => continue,
+            };
+            if !wheel.iter().any(|w| w.color == color) {
+                wheel.push(WheelColor {
+                    name: cap.name.trim().to_owned(),
+                    color,
+                });
+            }
+        }
+    }
+    ColorChoices {
+        free: mixes || wheel.is_empty(),
+        wheel,
+    }
+}
+
+/// Which kinds of scene values at least one of some fixtures can act on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct ValueSupport {
+    pub intensity: bool,
+    pub color: bool,
+    /// Pan and tilt (also fans).
+    pub position: bool,
+    pub gobo: bool,
+    pub prism: bool,
+    pub zoom: bool,
+    /// Strobe and shutter.
+    pub strobe: bool,
+}
+
+/// What `fixtures` can do, following how the engine resolves each value: an
+/// intensity needs a dimmer or color emitters (a virtual dimmer scales them),
+/// a color needs mixing channels or a color wheel, a position a pan or tilt
+/// channel with a range in degrees, a zoom a zoom channel with a range in
+/// degrees, and the rest their own channel. Same per-fixture limit as
+/// [`color_choices`].
+pub fn value_support(show: &Show, fixtures: &[FixtureId]) -> ValueSupport {
+    let mut s = ValueSupport::default();
+    for id in fixtures {
+        let Some(f) = show.fixture(*id) else { continue };
+        let attributes = fixture_info(show, f).attributes;
+        let has = |a: Attribute| attributes.contains(&a);
+        let physical = show
+            .definition_and_mode(f)
+            .map(|(def, mode)| def.physical_for(mode))
+            .unwrap_or_default();
+        let zoom_span = physical.zoom_max_deg - physical.zoom_min_deg;
+        s.intensity |= has(Attribute::Dimmer) || attributes.iter().any(|a| a.is_additive_color());
+        s.color |= attributes.iter().any(|a| mixes_color(*a)) || has(Attribute::ColorWheel);
+        s.position |= (has(Attribute::Pan) && physical.pan_max_deg > 0.0)
+            || (has(Attribute::Tilt) && physical.tilt_max_deg > 0.0);
+        s.gobo |= has(Attribute::Gobo);
+        s.prism |= has(Attribute::Prism);
+        s.zoom |= has(Attribute::Zoom) && zoom_span.is_finite() && zoom_span > 0.0;
+        s.strobe |= has(Attribute::Shutter);
+    }
+    s
 }
 
 /// First address (1-based) from `from` where `size` channels fit without
@@ -290,6 +487,236 @@ mod tests {
         assert_eq!(next_free_address(&show(&[1, 10]), u, 6, 1), Some(16));
         assert_eq!(next_free_address(&show(&[]), u, 6, 508), None);
         assert_eq!(next_free_address(&show(&[]), u, 0, 1), None);
+    }
+
+    #[test]
+    fn channel_presets_of_a_wheel() {
+        use crate::fixture_def::{Capability, CapabilityKind};
+        use crate::Rgb8;
+        let mut s = show(&[1, 20]);
+        let cap = |min, max, name: &str, kind| Capability {
+            min,
+            max,
+            name: name.into(),
+            kind,
+        };
+        let red = Rgb8::new(255, 0, 0);
+        // Channel "Red " (offset 1) becomes a wheel: open, red, an unnamed range.
+        s.definitions[0].channels[1].capabilities = vec![
+            cap(0, 9, "Open", CapabilityKind::Open),
+            cap(
+                20,
+                10,
+                " Red ",
+                CapabilityKind::Color {
+                    color: red,
+                    color2: None,
+                },
+            ),
+            cap(30, 39, "", CapabilityKind::Generic),
+        ];
+        let u = UniverseId(1);
+        let presets = channel_presets(&s, u, 2);
+        assert_eq!(
+            presets
+                .iter()
+                .map(|p| (p.name.as_str(), p.min, p.max, p.value))
+                .collect::<Vec<_>>(),
+            vec![("Open", 0, 9, 4), ("Red", 10, 20, 15)],
+        );
+        assert_eq!(
+            presets[1].kind,
+            CapabilityKind::Color {
+                color: red,
+                color2: None
+            }
+        );
+        // The second fixture's same channel has them too; others do not.
+        assert_eq!(channel_presets(&s, u, 21).len(), 2);
+        assert!(channel_presets(&s, u, 1).is_empty()); // Pan: no named ranges
+        assert!(channel_presets(&s, u, 100).is_empty()); // not patched
+        assert!(channel_presets(&s, u, 0).is_empty());
+        assert!(channel_presets(&s, UniverseId(2), 2).is_empty());
+        // Regression: a fixture patched at address 0 (a bad import) maps to
+        // channels the same way as in channel_map.
+        s.fixtures[0].address = 0;
+        assert_eq!(
+            channel_map(&s, u)[1].as_ref().map(|c| c.offset),
+            Some(1),
+            "channel_map: DMX 2 is the fixture's 2nd channel"
+        );
+        assert_eq!(channel_presets(&s, u, 2).len(), 2);
+        assert!(channel_presets(&s, u, 3).is_empty());
+        s.fixtures[0].address = 1;
+        // A fine byte has none: its coarse channel holds the presets.
+        s.definitions[0].channels[1].byte = crate::fixture_def::ChannelByte::Fine;
+        assert!(channel_presets(&s, u, 2).is_empty());
+    }
+
+    #[test]
+    fn color_choices_follow_how_colors_resolve() {
+        use crate::fixture_def::{Capability, ChannelDef, FixtureDefinition, FixtureKind, ModeDef};
+        use crate::Rgb8;
+        let cap = |min, max, name: &str, kind| Capability {
+            min,
+            max,
+            name: name.into(),
+            kind,
+        };
+        let solid = |r, g, b| CapabilityKind::Color {
+            color: Rgb8::new(r, g, b),
+            color2: None,
+        };
+        let wheel = |first: &str| ChannelDef {
+            name: "Wheel".into(),
+            attribute: Attribute::ColorWheel,
+            byte: ChannelByte::Coarse,
+            default: 0,
+            capabilities: vec![
+                cap(0, 9, "Open", CapabilityKind::Open),
+                cap(10, 19, first, solid(255, 0, 0)),
+                cap(
+                    20,
+                    29,
+                    "Split",
+                    CapabilityKind::Color {
+                        color: Rgb8::new(255, 0, 0),
+                        color2: Some(Rgb8::new(0, 0, 255)),
+                    },
+                ),
+                cap(30, 39, "Blue", solid(0, 0, 255)),
+                cap(40, 49, "Rotation", CapabilityKind::Generic),
+            ],
+        };
+        // Fixtures 1 and 2 ("G/P") mix colors; fixture 3 gets a wheel-only
+        // definition.
+        let mut s = show(&[1, 20, 40]);
+        s.definitions.push(FixtureDefinition {
+            manufacturer: "G".into(),
+            model: "W".into(),
+            kind: FixtureKind::Other,
+            channels: vec![wheel("Ruby")],
+            modes: vec![ModeDef {
+                name: "m".into(),
+                channels: vec![0],
+                heads: vec![],
+                physical: None,
+            }],
+            physical: Default::default(),
+        });
+        s.fixtures[2].definition = crate::ids::DefinitionKey::new("G", "W");
+        fn names(c: &ColorChoices) -> Vec<&str> {
+            c.wheel.iter().map(|w| w.name.as_str()).collect()
+        }
+
+        // A wheel-only fixture: its single-color slots (open counts as white,
+        // a split slot and a non-color range do not), and no free picker.
+        let only = color_choices(&s, &[FixtureId(3)]);
+        assert_eq!(names(&only), ["Open", "Ruby", "Blue"]);
+        assert!(!only.free);
+        assert_eq!(only.wheel[0].color, Color::WHITE);
+        // A fixture that mixes colors can show any.
+        let mixing = color_choices(&s, &[FixtureId(1)]);
+        assert!(mixing.free && mixing.wheel.is_empty());
+        // Mixed selection: any color, and the wheel colors still offered.
+        let both = color_choices(&s, &[FixtureId(1), FixtureId(3)]);
+        assert!(both.free);
+        assert_eq!(names(&both), ["Open", "Ruby", "Blue"]);
+        // Nothing selected, or no color at all: free.
+        assert!(color_choices(&s, &[]).free);
+        assert!(color_choices(&s, &[FixtureId(99)]).free);
+    }
+
+    #[test]
+    fn value_support_follows_the_channels() {
+        use crate::fixture_def::{ChannelDef, FixtureDefinition, FixtureKind, ModeDef};
+        let ch = |attribute| ChannelDef {
+            name: format!("{attribute:?}"),
+            attribute,
+            byte: ChannelByte::Coarse,
+            default: 0,
+            capabilities: vec![],
+        };
+        let def = |model: &str, attributes: Vec<Attribute>| FixtureDefinition {
+            manufacturer: "G".into(),
+            model: model.into(),
+            kind: FixtureKind::Other,
+            modes: vec![ModeDef {
+                name: "m".into(),
+                channels: (0..attributes.len() as u16).collect(),
+                heads: vec![],
+                physical: None,
+            }],
+            channels: attributes.into_iter().map(ch).collect(),
+            physical: Default::default(),
+        };
+        // 1: pan + red + dimmer ("G/P"); 2: wheel only; 3: white only (no
+        // dimmer, no R/G/B: nothing to scale); 4: beam effects.
+        let mut s = show(&[1, 20, 40, 60]);
+        s.definitions[0].physical.pan_max_deg = 540.0;
+        s.definitions.push(def("W", vec![Attribute::ColorWheel]));
+        s.definitions.push(def("L", vec![Attribute::White]));
+        s.definitions.push(def(
+            "B",
+            vec![
+                Attribute::Gobo,
+                Attribute::Prism,
+                Attribute::Zoom,
+                Attribute::Shutter,
+            ],
+        ));
+        if let Some(b) = s.definitions.last_mut() {
+            b.physical.zoom_min_deg = 10.0;
+            b.physical.zoom_max_deg = 40.0;
+        }
+        for (i, model) in [(1, "W"), (2, "L"), (3, "B")] {
+            s.fixtures[i].definition = crate::ids::DefinitionKey::new("G", model);
+        }
+        let ids = |v: &[u32]| v.iter().map(|&n| FixtureId(n)).collect::<Vec<_>>();
+        let some = |intensity, color, position, gobo, prism, zoom, strobe| ValueSupport {
+            intensity,
+            color,
+            position,
+            gobo,
+            prism,
+            zoom,
+            strobe,
+        };
+        assert_eq!(
+            value_support(&s, &ids(&[1])),
+            some(true, true, true, false, false, false, false)
+        );
+        // A color wheel shows colors but has no intensity of its own.
+        assert_eq!(
+            value_support(&s, &ids(&[2])),
+            some(false, true, false, false, false, false, false)
+        );
+        // White is an additive emitter: a virtual dimmer scales it, but with
+        // no red/green/blue (or wheel) it cannot show a requested color.
+        assert_eq!(
+            value_support(&s, &ids(&[3])),
+            some(true, false, false, false, false, false, false)
+        );
+        assert_eq!(
+            value_support(&s, &ids(&[4])),
+            some(false, false, false, true, true, true, true)
+        );
+        // A selection supports what any of its fixtures does; nothing, nothing.
+        assert_eq!(
+            value_support(&s, &ids(&[2, 4])),
+            some(false, true, false, true, true, true, true)
+        );
+        assert_eq!(value_support(&s, &[]), ValueSupport::default());
+        assert_eq!(value_support(&s, &ids(&[99])), ValueSupport::default());
+
+        // Regression: the engine ignores a position or a zoom without a
+        // range in degrees, so they must not be offered.
+        s.definitions[0].physical.pan_max_deg = 0.0;
+        assert!(!value_support(&s, &ids(&[1])).position);
+        if let Some(b) = s.definitions.last_mut() {
+            b.physical.zoom_max_deg = b.physical.zoom_min_deg;
+        }
+        assert!(!value_support(&s, &ids(&[4])).zoom);
     }
 
     #[test]

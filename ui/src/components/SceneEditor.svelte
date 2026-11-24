@@ -3,7 +3,7 @@
   import { app, run } from '../lib/app.svelte';
   import ScenePreview from './ScenePreview.svelte';
   import { capabilityNames, colorToHex, describeTarget, describeValue, groupFixtures, hexToColor } from '../lib/show';
-  import { sceneValueColor } from '../lib/core';
+  import { colorChoices, sceneValueColor, valueSupport } from '../lib/core';
   import type { AttributeValue, FanMode, Function as Fn, Scene, SceneValue, Target, ValueSource } from '../lib/protocol';
 
   let { f, scene }: { f: Fn; scene: Scene } = $props();
@@ -37,6 +37,31 @@
     }
     return show.fixtures.filter((x) => x.id === target.id);
   });
+  // Only what the selected fixtures can do is offered (a palette always).
+  const support = $derived(valueSupport(show, targetFixtures.map((x) => x.id)));
+  const allowed = $derived<Kind[]>([
+    ...(support.intensity ? (['intensity'] as const) : []),
+    ...(support.color ? (['color'] as const) : []),
+    ...(support.position ? (['position'] as const) : []),
+    ...(support.position && target?.type === 'group' ? (['fan'] as const) : []),
+    ...(support.gobo ? (['gobo'] as const) : []),
+    ...(support.prism ? (['prism'] as const) : []),
+    ...(support.zoom ? (['zoom'] as const) : []),
+    ...(support.strobe ? (['strobe'] as const) : []),
+    // Palettes are made in the Simple Desk: with none there is nothing to pick.
+    ...(show.palettes.length ? (['palette'] as const) : []),
+  ]);
+  // Changing the target can leave the chosen attribute unavailable. Not
+  // before a target is chosen: with none, only "palette" would be allowed and
+  // the editor would open on it.
+  $effect(() => {
+    if (target && !allowed.includes(kind)) kind = allowed[0] ?? kind;
+  });
+
+  // Fixtures with a color wheel can only show its colors: those are offered
+  // instead of a free picker (a fixture that mixes colors still gets one).
+  const choices = $derived(colorChoices(show, targetFixtures.map((x) => x.id)));
+  const onWheel = $derived(choices.wheel.some((w) => colorToHex(w.color) === color));
   const names = $derived(kind === 'gobo' || kind === 'prism' ? capabilityNames(show, targetFixtures, kind === 'gobo' ? 'Gobo' : 'Prism') : []);
 
   $effect(() => {
@@ -168,23 +193,34 @@
     </label>
     <label class="row">Attribute
       <select bind:value={kind} aria-label="Scene attribute">
-        <option value="intensity">Intensity</option>
-        <option value="color">Color</option>
-        <option value="position">Position</option>
-        {#if target?.type === 'group'}<option value="fan">Fan (group order)</option>{/if}
-        <option value="gobo">Gobo</option>
-        <option value="prism">Prism</option>
-        <option value="zoom">Zoom</option>
-        <option value="strobe">Strobe</option>
-        <option value="palette">Palette</option>
+        {#if allowed.includes('intensity')}<option value="intensity">Intensity</option>{/if}
+        {#if allowed.includes('color')}<option value="color">Color</option>{/if}
+        {#if allowed.includes('position')}<option value="position">Position</option>{/if}
+        {#if allowed.includes('fan')}<option value="fan">Fan (group order)</option>{/if}
+        {#if allowed.includes('gobo')}<option value="gobo">Gobo</option>{/if}
+        {#if allowed.includes('prism')}<option value="prism">Prism</option>{/if}
+        {#if allowed.includes('zoom')}<option value="zoom">Zoom</option>{/if}
+        {#if allowed.includes('strobe')}<option value="strobe">Strobe</option>{/if}
+        {#if allowed.includes('palette')}<option value="palette">Palette</option>{/if}
       </select>
     </label>
   </div>
   <div class="row">
-    {#if kind === 'intensity'}
+    {#if !allowed.length}
+      <span class="muted">Nothing to set: this target has no fixtures, and there are no palettes yet (create them in the Simple Desk).</span>
+    {:else if kind === 'intensity'}
       <input type="range" min="0" max="100" bind:value={level} aria-label="Intensity" /> <span>{level}%</span>
     {:else if kind === 'color'}
-      <input type="color" bind:value={color} aria-label="Color" />
+      {#if choices.wheel.length}
+        <div class="wheel" role="radiogroup" aria-label="Color wheel colors">
+          {#each choices.wheel as w (colorToHex(w.color))}
+            {@const hex = colorToHex(w.color)}
+            <button class="chip" class:on={hex === color} role="radio" aria-checked={hex === color} aria-label={w.name} title={w.name} style="--c:{hex}" onclick={() => (color = hex)}></button>
+          {/each}
+        </div>
+      {/if}
+      {#if choices.free}<input type="color" bind:value={color} aria-label="Color" />{/if}
+      {#if !choices.free && !onWheel}<span class="muted">Choose one of the wheel colors.</span>{/if}
     {:else if kind === 'position'}
       <label>Pan <input type="number" min="-270" max="270" step="0.5" bind:value={pan} style="width:80px" />°</label>
       <label>Tilt <input type="number" min="-135" max="135" step="0.5" bind:value={tilt} style="width:80px" />°</label>
@@ -209,7 +245,7 @@
         {#each show.palettes as p (p.id)}<option value={p.id}>{p.name} ({p.kind})</option>{/each}
       </select>
     {/if}
-    <button class="primary" disabled={!target || !currentValue()} onclick={add}>Add to scene</button>
+    <button class="primary" disabled={!target || !currentValue() || (kind === 'color' && !choices.free && !onWheel)} onclick={add}>Add to scene</button>
   </div>
   <div class="row">
     <button disabled={!programmer.length} onclick={() => mergeProgrammer(false)}>Add programmer values</button>
@@ -221,6 +257,10 @@
 
 <style>
   .add { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; background: var(--panel-2); }
+  .wheel { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { width: 26px; height: 26px; padding: 0; border-radius: 6px; background: var(--c); border: 2px solid var(--border); cursor: pointer; }
+  .chip:hover { border-color: var(--muted); }
+  .chip.on { border-color: var(--text); box-shadow: 0 0 0 2px var(--accent); }
   .swatch { display: inline-block; width: 18px; height: 18px; border-radius: 4px; border: 1px solid var(--border); vertical-align: middle; margin-right: 6px; }
   .actions { text-align: right; white-space: nowrap; }
 </style>

@@ -105,6 +105,13 @@ test('scene editor, movement preview, knob and DMX channel desk', async ({ page 
   await expect(page.getByRole('heading', { name: 'Channels' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Orientation' })).toHaveCount(0);
 
+  // A second group, of moving heads.
+  await page.getByLabel('Select Spot 540 1').check();
+  await page.getByLabel('Select Spot 540 2').check();
+  page.once('dialog', (d) => d.accept('Beams'));
+  await page.getByRole('button', { name: 'Create group' }).click();
+  await expect(page.getByRole('treeitem', { name: 'Group Beams' })).toBeVisible();
+
   // Add a group to a scene from the scene editor.
   await page.getByRole('button', { name: 'FX', exact: true }).click();
   await page.getByRole('button', { name: 'New scene', exact: true }).click();
@@ -112,6 +119,15 @@ test('scene editor, movement preview, knob and DMX channel desk', async ({ page 
   await page.getByLabel('Scene attribute').selectOption('intensity');
   await page.getByRole('button', { name: 'Add to scene' }).click();
   await expect(page.locator('td', { hasText: 'Intensity 100%' })).toBeVisible();
+
+  // Only what the fixtures can do is offered: dimmers have no zoom, strobe,
+  // position or color; moving heads do.
+  const attribute = page.getByLabel('Scene attribute');
+  await expect(attribute.locator('option')).toHaveText(['Intensity']);
+  await page.getByLabel('Scene target').selectOption({ label: 'Group: Beams' });
+  await expect(attribute.locator('option')).toHaveText([
+    'Intensity', 'Color', 'Position', 'Fan (group order)', 'Gobo', 'Prism', 'Zoom', 'Strobe',
+  ]);
 
   // Regression: quick successive additions must all be kept (each used to
   // be computed on a stale copy of the scene and overwrite the previous one).
@@ -127,7 +143,7 @@ test('scene editor, movement preview, knob and DMX channel desk', async ({ page 
 
   // The scene lists the fixtures it drives and their channel values.
   const preview = page.locator('.card', { hasText: 'Dimmer 1' });
-  await expect(page.getByText('Fixtures in this scene (2)')).toBeVisible();
+  await expect(page.getByText('Fixtures in this scene (4)')).toBeVisible();
   await expect(preview.locator('tbody tr').first()).toContainText('255');
   await page.getByRole('treeitem', { name: /Scene 2/ }).getByRole('button', { name: 'Start' }).click();
   await expect(preview.locator('tbody tr .now').first()).toHaveText('255');
@@ -278,4 +294,101 @@ test('virtual console: a dropped widget stays put and the clock ticks', async ({
   const lefts = await page.evaluate(() => (window as unknown as { lefts: number[] }).lefts);
   expect(Math.min(...lefts)).toBeGreaterThan(box.x + 40);
   await expect.poll(styleLeft).toBe(start + 80);
+});
+
+test('a channel with presets opens a list and the fader jumps to the chosen one', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByText('Engine: connected')).toBeVisible();
+  await page.getByRole('button', { name: 'Fixtures', exact: true }).click();
+  await page.getByLabel('Manufacturer').selectOption('Test');
+  await page.getByLabel('Model').selectOption('Test/Spot 540');
+  await page.getByRole('button', { name: 'Patch', exact: true }).click();
+
+  await page.getByRole('button', { name: 'Simple Desk' }).click();
+  await page.getByRole('button', { name: 'DMX channels' }).click();
+  await page.getByRole('button', { name: 'Patched', exact: true }).click();
+
+  // The color wheel (5th channel of the mode) offers its slots; Pan does not.
+  const wheel = page.getByRole('button', { name: /^Presets of channel/ }).first();
+  const address = Number(/\d+/.exec((await wheel.getAttribute('aria-label')) ?? '')![0]);
+  await expect(page.getByRole('button', { name: `Presets of channel ${address - 4}`, exact: true })).toHaveCount(0);
+  await wheel.click();
+  await expect(page.getByRole('option', { name: /Red/ })).toBeVisible();
+  await page.getByRole('option', { name: /Red/ }).click();
+
+  // "Red" is 10-19: the channel goes to the middle of it, as scenes do.
+  await expect(page.getByLabel(`Channel ${address}`, { exact: true })).toHaveValue('14');
+  await expect
+    .poll(async () => (await (await page.request.get('/api/runtime')).json()).state.channels)
+    .toContainEqual({ universe: 1, address, value: 14 });
+  // The strip names the slot now selected, and the list highlights it.
+  await expect(page.locator('.strip.set .ch', { hasText: 'Red' }).first()).toBeVisible();
+  await wheel.click();
+  await expect(page.getByRole('option', { name: /Red/ })).toHaveAttribute('aria-selected', 'true');
+  // Regression: focus went to the first preset instead of the current one.
+  await expect(page.getByRole('option', { name: /Red/ })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('listbox')).toHaveCount(0);
+
+  // Regression: opened upwards (button low in the window), the list covered
+  // the button that opened it.
+  await page.setViewportSize({ width: 1300, height: 320 });
+  await wheel.scrollIntoViewIfNeeded();
+  await wheel.click();
+  const button = (await wheel.boundingBox())!;
+  const list = (await page.getByRole('listbox').boundingBox())!;
+  expect(button.y + button.height).toBeGreaterThan(320 * 0.55);
+  expect(list.y + list.height).toBeLessThanOrEqual(button.y + 0.5);
+  await page.keyboard.press('Escape');
+});
+
+test('a color wheel fixture offers its wheel colors instead of a free picker', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByText('Engine: connected')).toBeVisible();
+  await page.getByRole('button', { name: 'Fixtures', exact: true }).click();
+  await page.getByLabel('Manufacturer').selectOption('Test');
+  await page.getByLabel('Model').selectOption('Test/Spot 540');
+  await page.getByPlaceholder('Name (default: model)').fill('Wheel spot');
+  await page.getByRole('button', { name: 'Patch', exact: true }).click();
+
+  await page.getByRole('button', { name: 'FX', exact: true }).click();
+  await page.getByRole('button', { name: 'New scene', exact: true }).click();
+  await page.getByLabel('Scene target').selectOption({ label: 'Wheel spot' });
+  // No palette exists yet, so none is offered (it would be an empty list).
+  await expect(page.getByLabel('Scene attribute').locator('option')).toHaveText([
+    'Intensity', 'Color', 'Position', 'Gobo', 'Prism', 'Zoom', 'Strobe',
+  ]);
+  await page.getByLabel('Scene attribute').selectOption('color');
+
+  // The slots of the wheel, no free color input.
+  const wheel = page.getByRole('radiogroup', { name: 'Color wheel colors' });
+  for (const name of ['White', 'Red', 'Green', 'Blue', 'Amber']) {
+    await expect(wheel.getByRole('radio', { name, exact: true })).toBeVisible();
+  }
+  await expect(wheel.getByRole('radio')).toHaveCount(5);
+  await expect(page.locator('input[type=color]')).toHaveCount(0);
+
+  await wheel.getByRole('radio', { name: 'Blue', exact: true }).click();
+  await expect(wheel.getByRole('radio', { name: 'Blue', exact: true })).toHaveAttribute('aria-checked', 'true');
+  await page.getByRole('button', { name: 'Add to scene' }).click();
+  await expect(page.locator('td', { hasText: 'Color #0000ff' })).toBeVisible();
+
+  // The engine puts the wheel on that slot: Blue is 30-39, so 34.
+  const row = page.locator('.card', { hasText: 'Wheel spot' }).locator('tr', { hasText: 'Color Wheel' });
+  await expect(row).toContainText('34');
+
+  // Once a palette is stored (Simple Desk), the editor offers it.
+  await page.getByRole('button', { name: 'Simple Desk' }).click();
+  await page.getByRole('button', { name: 'Wheel spot', exact: true }).click();
+  await page.getByRole('button', { name: 'Full' }).click();
+  await page.locator('select').filter({ has: page.locator('option', { hasText: 'Beam' }) }).selectOption('Intensity');
+  page.once('dialog', (d) => d.accept('Bright'));
+  await page.getByRole('button', { name: 'New palette' }).click();
+  await page.getByRole('button', { name: 'FX', exact: true }).click();
+  await page.getByRole('button', { name: 'New scene', exact: true }).click();
+  // Regression: with palettes in the show the editor opened on "Palette".
+  await expect(page.getByLabel('Scene attribute')).toHaveValue('intensity');
+  await page.getByLabel('Scene target').selectOption({ label: 'Wheel spot' });
+  await page.getByLabel('Scene attribute').selectOption('palette');
+  await expect(page.locator('select option', { hasText: 'Bright (Intensity)' })).toBeAttached();
 });

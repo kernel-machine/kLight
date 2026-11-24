@@ -466,6 +466,15 @@ Always visible:
 - **Blackout** and **grand master** always reachable.
 - **DMX monitor** (channels per universe) that can be opened from any screen.
 
+The scene editor offers only the values the selected fixtures can take, and
+for fixtures that only have a color wheel its slots instead of a free color
+(core `value_support` and `color_choices`, which follow the engine's rules).
+The Simple Desk channel faders open the named ranges of a channel (color wheel
+slots, gobos, shutter modes) and jump to the value the engine uses for them.
+Known limit: the editor decides per fixture while the engine decides per head
+(a fixture with an RGB head and a wheel head counts as mixing), and it ignores
+color calibration (only offered for fixtures that mix colors).
+
 Purely local preferences (zoom, theme, current page) stay in the client.
 
 ---

@@ -7,6 +7,9 @@
 import init, { initSync, ShowView, MovementView, MatrixView, linear_to_hex, hex_to_linear, max_sequence_colors, color_sequence_json, beat_flash_bits } from './wasm/klight_wasm.js';
 import type {
   ChannelInfo,
+  ChannelPreset,
+  ColorChoices,
+  ValueSupport,
   Color,
   FixtureGroup,
   FixtureInfo,
@@ -35,12 +38,13 @@ let cached: {
   channels: Map<number, Array<ChannelInfo | null>>;
   infos: Map<number, FixtureInfo>;
   previews: Map<number, FixturePreview[]>;
+  presets: Map<string, ChannelPreset[]>;
 } | null = null;
 
 function view(show: Show) {
   if (cached?.show !== show) {
     cached?.view.free();
-    cached = { show, view: new ShowView(JSON.stringify(show)), channels: new Map(), infos: new Map(), previews: new Map() };
+    cached = { show, view: new ShowView(JSON.stringify(show)), channels: new Map(), infos: new Map(), previews: new Map(), presets: new Map() };
   }
   return cached;
 }
@@ -83,6 +87,35 @@ export function channelMap(show: Show, universe: number): Array<ChannelInfo | nu
     c.channels.set(universe, map);
   }
   return map;
+}
+
+/**
+ * Named ranges of the channel patched at `address` (color wheel slots, gobos,
+ * shutter modes...) with the DMX value that selects each, as the engine
+ * resolves them. Empty if the channel has none.
+ */
+export function channelPresets(show: Show, universe: number, address: number): ChannelPreset[] {
+  const c = view(show);
+  const key = `${universe}:${address}`;
+  let p = c.presets.get(key);
+  if (!p) {
+    p = JSON.parse(c.view.channel_presets(universe, address)) as ChannelPreset[];
+    c.presets.set(key, p);
+  }
+  return p;
+}
+
+/** Which kinds of scene values some fixtures can act on (the engine's own rules). */
+export function valueSupport(show: Show, fixtureIds: number[]): ValueSupport {
+  return JSON.parse(view(show).view.value_support(Uint32Array.from(fixtureIds))) as ValueSupport;
+}
+
+/**
+ * Colors that make sense for some fixtures: the wheel colors of the ones
+ * without color mixing, and whether any color is meaningful (`free`).
+ */
+export function colorChoices(show: Show, fixtureIds: number[]): ColorChoices {
+  return JSON.parse(view(show).view.color_choices(Uint32Array.from(fixtureIds))) as ColorChoices;
 }
 
 /** What a scene sets on each fixture and channel (engine's own compilation). */

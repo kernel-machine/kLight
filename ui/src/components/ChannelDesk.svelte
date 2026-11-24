@@ -5,6 +5,9 @@
   import { app, client, run } from '../lib/app.svelte';
   import { channelMap, UNIVERSE_SIZE } from '../lib/show';
   import ChannelIcon from './ChannelIcon.svelte';
+  import PresetPicker from './PresetPicker.svelte';
+  import { channelPresets } from '../lib/core';
+  import { hasPresets, presetAt } from '../lib/channelIcon';
 
   const show = $derived(app.s.show!);
   let universe = $state(app.s.show?.universes[0]?.id ?? 1);
@@ -59,6 +62,15 @@
   function valueOf(a: number): number {
     return local.get(a) ?? overrides.get(a) ?? output[a - 1] ?? 0;
   }
+
+  // Channels with named ranges (color wheel, gobos, shutter...) open a list
+  // of them; picking one sets the channel, so its fader jumps there.
+  let picker = $state<{ address: number; x: number; top: number; bottom: number } | null>(null);
+  function openPicker(e: MouseEvent, address: number) {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    picker = { address, x: r.left, top: r.top, bottom: r.bottom };
+  }
+  const pickerChannel = $derived(picker ? map[picker.address - 1] : null);
 </script>
 
 <div class="toolbar row">
@@ -81,18 +93,27 @@
     {@const info = map[a - 1]}
     {@const set = overrides.has(a) || local.has(a)}
     {@const v = valueOf(a)}
+    {@const presets = info ? channelPresets(show, universe, a) : []}
+    {@const choosable = hasPresets(presets)}
+    {@const preset = choosable ? presets[presetAt(presets, v)] : undefined}
     <div
       class="strip"
       class:set
       class:patched={info !== null}
       class:alt={info !== null && info.fixture_index % 2 === 1}
       class:first={info?.offset === 0}
-      title={info ? `${info.fixture_name} — ${info.channel_name}` : 'Not patched'}
+      title={info ? `${info.fixture_name} — ${info.channel_name}${preset ? `: ${preset.name}` : ''}` : 'Not patched'}
     >
       <div class="addr">{a}</div>
-      <div class="icon">{#if info}<ChannelIcon attribute={info.attribute} />{/if}</div>
+      {#if info && choosable}
+        <button class="icon choose" title="Choose: {info.channel_name}" aria-label="Presets of channel {a}" aria-haspopup="listbox" onclick={(e) => openPicker(e, a)}>
+          <ChannelIcon attribute={info.attribute} /><span class="caret">▾</span>
+        </button>
+      {:else}
+        <div class="icon">{#if info}<ChannelIcon attribute={info.attribute} />{/if}</div>
+      {/if}
       <div class="name">{info ? (info.offset === 0 ? info.fixture_name : '') : ''}</div>
-      <div class="ch">{info?.channel_name ?? '—'}</div>
+      <div class="ch">{preset?.name ?? info?.channel_name ?? '—'}</div>
       <input
         type="range"
         min="0"
@@ -116,6 +137,19 @@
   {/each}
 </div>
 
+{#if picker && pickerChannel}
+  <PresetPicker
+    title="{pickerChannel.fixture_name} — {pickerChannel.channel_name}"
+    presets={channelPresets(show, universe, picker.address)}
+    value={valueOf(picker.address)}
+    x={picker.x}
+    top={picker.top}
+    bottom={picker.bottom}
+    onpick={(value) => picker && send(picker.address, value)}
+    onclose={() => (picker = null)}
+  />
+{/if}
+
 <style>
   .toolbar { margin-bottom: 10px; }
   .strips { display: grid; grid-template-columns: repeat(auto-fill, minmax(56px, 1fr)); gap: 4px; }
@@ -125,6 +159,9 @@
   .strip.first { border-left: 3px solid var(--accent); }
   .strip.set { border-color: var(--warn); box-shadow: inset 0 0 0 1px var(--warn); }
   .icon { height: 16px; }
+  .choose { display: inline-flex; align-items: center; gap: 1px; height: 18px; padding: 0 3px; border: 1px solid var(--border); border-radius: 4px; background: transparent; cursor: pointer; }
+  .choose:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 15%, transparent); }
+  .caret { font-size: 8px; color: var(--muted); }
   .addr { font-weight: 700; font-variant-numeric: tabular-nums; font-size: 12px; }
   .name, .ch { font-size: 9px; color: var(--muted); width: 100%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; height: 11px; }
   .name { color: var(--text); }

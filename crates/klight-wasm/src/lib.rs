@@ -114,6 +114,30 @@ impl ShowView {
         Some(to_json(&inspect::fixture_info(&self.show, f)))
     }
 
+    /// JSON `ValueSupport`: which kinds of scene values some fixtures can
+    /// act on (intensity, color, position, gobo, prism, zoom, strobe).
+    pub fn value_support(&self, fixtures: Vec<u32>) -> String {
+        let ids: Vec<FixtureId> = fixtures.into_iter().map(FixtureId).collect();
+        to_json(&inspect::value_support(&self.show, &ids))
+    }
+
+    /// JSON `ColorChoices` for some fixtures: wheel colors to pick from and
+    /// whether any color makes sense.
+    pub fn color_choices(&self, fixtures: Vec<u32>) -> String {
+        let ids: Vec<FixtureId> = fixtures.into_iter().map(FixtureId).collect();
+        to_json(&inspect::color_choices(&self.show, &ids))
+    }
+
+    /// JSON `ChannelPreset[]`: the named ranges of the channel at `address`
+    /// (color wheel slots, gobos, shutter modes...), empty if it has none.
+    pub fn channel_presets(&self, universe: u32, address: u16) -> String {
+        to_json(&inspect::channel_presets(
+            &self.show,
+            UniverseId(universe),
+            address,
+        ))
+    }
+
     /// JSON `FixturePreview[]`: what a scene sets on each fixture and
     /// channel; undefined if the function is not a scene.
     pub fn scene_preview(&self, id: u32) -> Option<String> {
