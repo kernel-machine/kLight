@@ -582,11 +582,11 @@ Not to be implemented now, but the v1 choices must not make them hard.
 ## 18. Open decisions
 
 To be confirmed with the project owner before the indicated milestone:
-- **License** (before M0, because it constrains dependencies and
-  contributions): GPLv3 + CLA for contributors (allows integrating GPL
-  libraries and selling builds or commercial licenses) or Apache 2.0. Until
-  the decision, use only dependencies with permissive licenses (MIT,
-  Apache-2.0, BSD, Zlib).
+- ~~License~~ — decided: GPL-3.0-or-later (`LICENSE`). Dependencies must be
+  GPLv3-compatible (permissive licenses and MPL-2.0; not GPL-2.0-only).
+  Open point: a CLA for outside contributors, needed before accepting
+  contributions if commercial licenses or a later change of license are to
+  stay possible.
 - ~~UI framework~~ — decided: Svelte + TypeScript, with the core's pure
   functions shared through WebAssembly (`klight-wasm`) instead of a Rust UI.
 - JSON vs SQLite show file: JSON proposed (before M2).

@@ -114,5 +114,10 @@ automatically (`--if-missing`). On Windows run the script from Git Bash.
 
 ## License
 
-Not decided yet (SPEC §18). Until then only permissive dependencies are
-allowed; `cargo deny check licenses` enforces it (`deny.toml`).
+kLight is free software under the GNU General Public License, version 3 or
+(at your option) any later version: see [`LICENSE`](LICENSE).
+
+Dependencies must be compatible with it; `cargo deny check licenses` enforces
+it (`deny.toml`). Fixture definitions and controller profiles downloaded from
+QLC+ keep their own license (Apache License 2.0) and are not part of this
+repository.

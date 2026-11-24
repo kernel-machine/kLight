@@ -19,7 +19,8 @@ implementation choice contradicts it, stop and ask instead of deviating.
 - Small commits, one milestone at a time; do not start the next one without green CI.
 - English is the language of the whole project: code, identifiers, comments and all documentation.
 - Do not add dependencies to the core without justifying them in the commit.
-  Until the license is decided (SPEC §18) only permissive licenses (`deny.toml`).
+  kLight is GPL-3.0-or-later: dependencies must be GPLv3-compatible
+  (`deny.toml`; GPL-2.0-only is not).
 
 ## Dependency rule
 

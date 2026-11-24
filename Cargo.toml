@@ -21,7 +21,7 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.94"
 publish = false
-# License intentionally not set yet: see SPEC.md §18 (open decision).
+license = "GPL-3.0-or-later"
 
 [workspace.dependencies]
 klight-model = { path = "crates/klight-model" }
