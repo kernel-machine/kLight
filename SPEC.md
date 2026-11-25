@@ -299,6 +299,9 @@ chaser step or collection plays its function (paused state if that one is
 paused), both on screen and on controller LEDs; pressing it still starts or
 stops the function itself.
 
+In Design mode every widget, inside frames too, is resized by dragging its
+bottom right corner, in steps of 10 px.
+
 **Design / Show** mode at core level: in Show mode commands that modify the
 structure are rejected. Switching to Design from remote clients requires a PIN.
 

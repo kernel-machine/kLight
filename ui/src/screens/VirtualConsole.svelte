@@ -1,6 +1,7 @@
 <script lang="ts">
   import { app, client, notify, run } from '../lib/app.svelte';
   import { LearnCancelled } from '../lib/client';
+  import { editQueue } from '../lib/queue';
   import { colorToHex, describeInputMessage, describeInputTarget, frameFromFunctions, frameKind, functionColor, mappingConflicts, nextId } from '../lib/show';
   import type { ButtonAction, SliderMode, VirtualConsole, Widget, WidgetKind } from '../lib/protocol';
   import VcWidget from '../components/VcWidget.svelte';
@@ -26,13 +27,20 @@
     });
   }
 
-  function saveVc(widgets: Widget[]) {
-    const console: VirtualConsole = { widgets };
-    return run({ type: 'set_virtual_console', console });
+  // The whole console is saved at once, so edits are queued and each one is
+  // applied to the latest version: a quick one must not undo the one before.
+  const enqueue = editQueue((e) => notify(String(e), 'error'));
+  function saveVc(change: (widgets: Widget[]) => Widget[]) {
+    enqueue(() => {
+      const latest = app.s.show?.virtual_console.widgets;
+      if (!latest) return;
+      const console: VirtualConsole = { widgets: change(latest) };
+      return run({ type: 'set_virtual_console', console });
+    });
   }
 
   function update(id: number, f: (w: Widget) => Widget) {
-    saveVc(mapTree(vc.widgets, (w) => (w.id === id ? f(w) : w)));
+    saveVc((widgets) => mapTree(widgets, (w) => (w.id === id ? f(w) : w)));
   }
 
   function add(kind: WidgetKind, label: string, width = 100, height = 70) {
@@ -48,7 +56,7 @@
     if (selected && (selected.kind.type === 'frame' || selected.kind.type === 'solo_frame')) {
       update(selected.id, (f) => ({ ...f, children: [...f.children, { ...w, props: { ...w.props, x: 10, y: 24 } }] }));
     } else {
-      saveVc([...vc.widgets, w]);
+      saveVc((widgets) => [...widgets, w]);
     }
     selectedId = id;
   }
@@ -107,7 +115,7 @@
     framePicker = false;
     const id = nextId(allWidgets(vc.widgets));
     const frame = frameFromFunctions(show, opts.ids, { ...opts, firstId: id, x: 20 + (id % 8) * 20, y: 20 + (id % 8) * 20 });
-    saveVc([...vc.widgets, frame]);
+    saveVc((widgets) => [...widgets, frame]);
     selectedId = id;
   }
 
@@ -175,6 +183,7 @@
           selected={selectedId}
           onselect={(id) => (selectedId = id)}
           onmove={(id, dx, dy) => update(id, (x) => ({ ...x, props: { ...x.props, x: Math.max(0, x.props.x + dx), y: Math.max(0, x.props.y + dy) } }))}
+          onresize={(id, width, height) => update(id, (x) => ({ ...x, props: { ...x.props, width, height } }))}
         />
       {/each}
     </div>
@@ -245,7 +254,7 @@
             {/if}
           </div>
         {/if}
-        <button class="danger" onclick={() => { saveVc(mapTree(vc.widgets, (x) => (x.id === w.id ? null : x))); selectedId = null; }}>Delete widget</button>
+        <button class="danger" onclick={() => { saveVc((widgets) => mapTree(widgets, (x) => (x.id === w.id ? null : x))); selectedId = null; }}>Delete widget</button>
       </aside>
     {/if}
   </div>

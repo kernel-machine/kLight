@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 async function runtime(page: Page) {
   const r = await page.request.get('/api/runtime');
@@ -747,4 +747,107 @@ test('a collection plays functions together and can be a chaser step', async ({ 
   await page.getByRole('treeitem', { name: /Both looks/ }).getByRole('button', { name: 'Stop' }).click();
   await page.getByRole('button', { name: 'Virtual Console' }).click();
   await expect(stepButton).not.toHaveClass(/\bon\b/);
+});
+
+test('virtual console: widgets are resized by their bottom right corner', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByText('Engine: connected')).toBeVisible();
+  await page.getByRole('button', { name: 'Virtual Console' }).click();
+  const toolbar = page.locator('.toolbar');
+  const style = (w: Locator, key: 'left' | 'top' | 'width' | 'height') =>
+    w.evaluate((el, k) => parseFloat((el as HTMLElement).style[k]), key);
+  const geometry = async (w: Locator) => [await style(w, 'left'), await style(w, 'top'), await style(w, 'width'), await style(w, 'height')];
+  /** Drags the corner of a widget by (dx, dy). */
+  const drag = async (w: Locator, dx: number, dy: number) => {
+    const handle = w.locator(':scope > .resize');
+    await handle.scrollIntoViewIfNeeded();
+    const box = (await handle.boundingBox())!;
+    const [x, y] = [box.x + box.width - 5, box.y + box.height - 5];
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + dx, y + dy, { steps: 5 });
+    await page.mouse.up();
+  };
+
+  /** Adds a widget and returns it, once it is on the screen: earlier tests left
+   * widgets of the same kinds. */
+  const add = async (name: string, selector: string) => {
+    const all = page.locator(selector);
+    const n = await all.count();
+    await toolbar.getByRole('button', { name, exact: true }).click();
+    await expect(all).toHaveCount(n + 1);
+    return all.nth(n);
+  };
+
+  // Steps of the grid, the position unchanged.
+  const knob = await add('Knob', '.w.knob');
+  await expect.poll(() => geometry(knob).then((g) => g.slice(2))).toEqual([100, 130]);
+  const [left, top] = await geometry(knob);
+  const dial = knob.getByRole('slider');
+  const before = (await dial.boundingBox())!.width;
+  await drag(knob, 63, 48);
+  await expect.poll(() => geometry(knob)).toEqual([left, top, 160, 180]);
+  // The knob grows with its widget.
+  expect((await dial.boundingBox())!.width).toBeGreaterThan(before + 30);
+  // Never below the minimum, and the content still fits.
+  await drag(knob, -400, -400);
+  await expect.poll(() => geometry(knob)).toEqual([left, top, 40, 30]);
+  await drag(knob, 80, 120);
+  await expect.poll(() => geometry(knob)).toEqual([left, top, 120, 150]);
+
+  // A button inside a frame: neither the frame moves nor changes.
+  const frame = await add('Frame', '.w.frame');
+  await expect.poll(() => geometry(frame).then((g) => g.slice(2))).toEqual([360, 240]);
+  const framed = await geometry(frame);
+  await toolbar.getByRole('button', { name: 'Button', exact: true }).click();
+  const button = frame.locator('.w.button');
+  await expect(button).toHaveCount(1);
+  await drag(button, 50, 20);
+  await expect.poll(() => geometry(button)).toEqual([10, 24, 150, 90]);
+  expect(await geometry(frame)).toEqual(framed);
+  // The frame is resized by its own corner, its content staying where it is.
+  await drag(frame, -40, 30);
+  await expect.poll(() => geometry(frame)).toEqual([framed[0], framed[1], 320, 270]);
+  expect(await geometry(button)).toEqual([10, 24, 150, 90]);
+
+  // The settings panel and the engine have the new size.
+  await expect(page.getByLabel('W', { exact: true })).toHaveValue('320');
+  await page.reload();
+  await page.getByRole('button', { name: 'Virtual Console' }).click();
+  await expect.poll(() => geometry(page.locator('.w.frame').last())).toEqual([framed[0], framed[1], 320, 270]);
+
+  // Regression: a change made before the engine had confirmed the previous one
+  // started from the old size, and saved over it. All the events are sent in
+  // the same task, before any confirmation can arrive.
+  const last = page.locator('.w.frame').last();
+  await last.evaluate((frame) => {
+    const drag = (w: Element, dx: number, dy: number) => {
+      const handle = w.querySelector(':scope > .resize')!;
+      const send = (type: string, x: number, y: number) =>
+        handle.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 1, button: 0, clientX: x, clientY: y }));
+      send('pointerdown', 0, 0);
+      send('pointermove', dx, dy);
+      send('pointerup', dx, dy);
+    };
+    const inner = frame.querySelector('.w.button')!;
+    drag(inner, 30, 0);
+    drag(inner, 0, 20);
+    drag(frame, 20, 0);
+  });
+  // A second page shows what the engine has, with no preview of its own.
+  const other = await page.context().newPage();
+  await other.goto('/');
+  await other.getByRole('button', { name: 'Virtual Console' }).click();
+  const there = other.locator('.w.frame').last();
+  await expect.poll(() => geometry(there)).toEqual([framed[0], framed[1], 340, 270]);
+  await expect.poll(() => geometry(there.locator('.w.button'))).toEqual([10, 24, 180, 110]);
+  await other.close();
+
+  // Live, in Show mode, there is nothing to drag.
+  await expect(page.locator('.w .resize').first()).toBeVisible();
+  await page.getByRole('button', { name: 'Design mode' }).click();
+  await expect(page.locator('.w .resize')).toHaveCount(0);
+  page.once('dialog', (d) => d.accept(''));
+  await page.getByRole('button', { name: 'SHOW mode' }).click();
+  await expect(page.locator('.w .resize').first()).toBeVisible();
 });

@@ -100,7 +100,8 @@
 </div>
 
 <style>
-  .knob { width: 100%; max-width: 90px; aspect-ratio: 1; cursor: ns-resize; touch-action: none; outline: none; }
+  /* As large as fits in the box around it, a size container. */
+  .knob { width: min(100cqw, 100cqh); aspect-ratio: 1; cursor: ns-resize; touch-action: none; outline: none; }
   .knob:focus-visible { outline: 2px solid var(--accent); border-radius: 50%; }
   .knob.disabled { cursor: default; opacity: 0.6; }
   svg { width: 100%; height: 100%; display: block; }
