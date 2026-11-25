@@ -7,13 +7,15 @@
   import MovementEditor from '../components/MovementEditor.svelte';
   import MatrixEditor from '../components/MatrixEditor.svelte';
   import FunctionTree from '../components/FunctionTree.svelte';
+  import ChaserEditor from '../components/ChaserEditor.svelte';
 
   const show = $derived(app.s.show!);
   const active = $derived(new Map((app.s.runtime?.state.active ?? []).map((a) => [a.id, a])));
   const programmer = $derived(app.s.runtime?.state.programmer ?? []);
   let selectedId = $state<number | null>(null);
   const selected = $derived(show.functions.find((f) => f.id === selectedId) ?? null);
-  const scenes = $derived(show.functions.filter((f) => f.kind.type === 'scene'));
+  /** Chaser whose "add scenes" dialog is open. */
+  let picking = $state<number | null>(null);
 
   function kindLabel(k: FunctionKind['type']) {
     return { scene: 'Scene', chaser: 'Chaser', cue_list: 'Cue list', movement_effect: 'Movement', matrix_effect: 'Matrix' }[k];
@@ -40,7 +42,10 @@
       movement_effect: { type: 'movement_effect', group: firstGroup, shape: { type: 'circle' }, center_pan: 0, center_tilt: 0, width: 60, height: 30, period: { beats: 4 }, phase_spread: 0, direction: 'Forward' },
       matrix_effect: { type: 'matrix_effect', group: firstGroup, algorithm: { type: 'chase', color: hexToColor('#ff0000'), background: hexToColor('#000000') }, period: { beats: 2 }, direction: 'Forward' },
     };
-    if (await save({ id, name: `${kindLabel(type)} ${id}`, kind: kinds[type], folder })) selectedId = id;
+    if (!(await save({ id, name: `${kindLabel(type)} ${id}`, kind: kinds[type], folder }))) return;
+    selectedId = id;
+    // A new chaser starts by asking for its scenes.
+    if (type === 'chaser' && show.functions.some((f) => f.kind.type === 'scene')) picking = id;
   }
 
   const programmerValues = (): SceneValue[] => programmer.map((e) => ({ target: e.target, value: { type: 'explicit', value: e.value } }));
@@ -98,7 +103,7 @@
 <div class="fx">
   <section class="panel list">
     <h2>Functions</h2>
-    <FunctionTree {selectedId} onselect={(id) => (selectedId = id)} oncreate={(category, folder) => create(category, folder)} />
+    <FunctionTree {selectedId} onselect={(id) => { selectedId = id; picking = null; }} oncreate={(category, folder) => create(category, folder)} />
     <details class="seq">
       <summary>Color sequence</summary>
     {#if show.groups.length}
@@ -156,27 +161,7 @@
         </div>
         <SceneEditor {f} scene={k} />
       {:else if f.kind.type === 'chaser'}
-        {@const k = f.kind}
-        <div class="row">
-          <button onclick={() => timeInput(k.hold, (t) => updateKind(f, { ...k, hold: t }))}>Step: {formatTime(k.hold)}</button>
-          <button onclick={() => timeInput(k.fade, (t) => updateKind(f, { ...k, fade: t }))}>Fade: {formatTime(k.fade)}</button>
-          <select value={k.run_mode} onchange={(e) => updateKind(f, { ...k, run_mode: e.currentTarget.value as typeof k.run_mode })}>
-            <option>Loop</option><option>SingleShot</option><option>PingPong</option>
-          </select>
-          <select value={k.direction} onchange={(e) => updateKind(f, { ...k, direction: e.currentTarget.value as typeof k.direction })}>
-            <option>Forward</option><option>Backward</option>
-          </select>
-        </div>
-        <h3>Steps</h3>
-        {#each k.steps as s, i (i)}
-          <div class="row" class:current={active.get(f.id)?.position === i}>
-            <span>{i + 1}. {show.functions.find((x) => x.id === s.scene)?.name ?? `#${s.scene}`}</span>
-            <button onclick={() => updateKind(f, { ...k, steps: k.steps.filter((_, j) => j !== i) })}>×</button>
-          </div>
-        {/each}
-        <div class="row">
-          {#each scenes as s (s.id)}<button onclick={() => updateKind(f, { ...k, steps: [...k.steps, { scene: s.id, hold: null, fade: null }] })}>+ {s.name}</button>{/each}
-        </div>
+        <ChaserEditor {f} chaser={f.kind} {timeInput} bind:picking />
       {:else if f.kind.type === 'cue_list'}
         {@const k = f.kind}
         {@const pos = active.get(f.id)?.position}
