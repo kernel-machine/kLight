@@ -392,3 +392,74 @@ test('a color wheel fixture offers its wheel colors instead of a free picker', a
   await page.getByLabel('Scene attribute').selectOption('palette');
   await expect(page.locator('select option', { hasText: 'Bright (Intensity)' })).toBeAttached();
 });
+
+test('chaser steps are picked in a dialog and can be reordered', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByText('Engine: connected')).toBeVisible();
+  await page.getByRole('button', { name: 'FX', exact: true }).click();
+  const name = page.locator('.editor input').first();
+  for (const scene of ['Step A', 'Step B', 'Step C']) {
+    await page.getByRole('button', { name: 'New scene', exact: true }).click();
+    await expect(name).toHaveValue(/^Scene \d+$/);
+    await name.fill(scene);
+    await name.press('Enter');
+    await expect(page.getByRole('treeitem', { name: new RegExp(scene) })).toBeVisible();
+  }
+
+  // A new chaser opens the dialog; scenes are added in the order of the ticks.
+  await page.getByRole('button', { name: 'New chaser', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  // Only scenes can be steps.
+  await expect(dialog.getByRole('treeitem', { name: /Chasers/ })).toHaveCount(0);
+  await dialog.getByLabel('Select Step B').check();
+  await dialog.getByLabel('Select Step A').check();
+  // Steps are ordered on the chaser screen only.
+  await expect(dialog.getByRole('button', { name: /^Move / })).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Add 2 steps' }).click();
+  await expect(dialog).toHaveCount(0);
+  const steps = page.getByRole('list', { name: 'Chaser steps' }).locator('li .name');
+  await expect(steps).toHaveText(['Step B', 'Step A']);
+
+  // Reopened, it appends: a scene can appear more than once.
+  await page.getByRole('button', { name: 'Add scenes…' }).click();
+  await dialog.getByLabel('Select Step C').check();
+  await dialog.getByLabel('Select Step B').check();
+  await dialog.getByRole('button', { name: 'Add 2 steps' }).click();
+  await expect(steps).toHaveText(['Step B', 'Step A', 'Step C', 'Step B']);
+
+  // Cancel changes nothing.
+  await page.getByRole('button', { name: 'Add scenes…' }).click();
+  await dialog.getByLabel('Select Step A').check();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(steps).toHaveCount(4);
+
+  // Order: arrows, drag and drop, removal.
+  await page.getByRole('button', { name: 'Move step 3 up' }).click();
+  await expect(steps).toHaveText(['Step B', 'Step C', 'Step A', 'Step B']);
+  await page.getByRole('button', { name: 'Remove step 4' }).click();
+  await expect(steps).toHaveText(['Step B', 'Step C', 'Step A']);
+  await steps.nth(2).dragTo(steps.nth(0));
+  await expect(steps).toHaveText(['Step A', 'Step B', 'Step C']);
+  await steps.nth(0).dragTo(steps.nth(2));
+  await expect(steps).toHaveText(['Step B', 'Step C', 'Step A']);
+
+  // The order is the engine's, not just the page's.
+  await page.reload();
+  await page.getByRole('button', { name: 'FX', exact: true }).click();
+  await page.getByRole('treeitem', { name: /^Chaser \d+/ }).click();
+  await expect(steps).toHaveText(['Step B', 'Step C', 'Step A']);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+
+  // The virtual console still builds a frame with the same dialog.
+  await page.getByRole('button', { name: 'Virtual Console' }).click();
+  await page.getByRole('button', { name: 'Frame from functions…' }).click();
+  await dialog.getByLabel('Solo frame (one at a time)').check();
+  await dialog.getByLabel('Frame name').fill('Steps');
+  await dialog.getByLabel('Select Step A').check();
+  await expect(dialog.getByRole('button', { name: 'Move Step A up' })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Create 1 button' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByText('Steps (solo)', { exact: true })).toBeVisible();
+});
