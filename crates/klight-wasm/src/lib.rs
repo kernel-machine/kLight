@@ -10,12 +10,13 @@
 
 use klight_engine_core::compile::CompiledShow;
 use klight_engine_core::effects::{head_phase, matrix_cell_color, matrix_phase, movement_point};
-use klight_engine_core::preview::scene_preview;
+use klight_engine_core::preview::scene_channels;
+use klight_engine_core::scene_edit;
 use klight_fixtures::color_sequence;
-use klight_model::inspect::{self, FixturePreview};
+use klight_model::inspect::{self, SceneFixtureChannels};
 use klight_model::{
-    Color, FixtureId, FunctionId, GroupId, GroupLayout, MatrixEffect, MovementEffect, Rgb8, Show,
-    UniverseId,
+    ChannelRef, Color, FixtureId, FunctionId, GroupId, GroupLayout, MatrixEffect, MovementEffect,
+    Rgb8, SceneValue, Show, UniverseId,
 };
 use wasm_bindgen::prelude::*;
 
@@ -50,8 +51,19 @@ impl ShowView {
             .get_or_init(|| CompiledShow::build(&self.show))
     }
 
-    pub fn scene_preview_of(&self, id: u32) -> Option<Vec<FixturePreview>> {
-        scene_preview(&self.show, self.compiled(), FunctionId(id))
+    pub fn scene_channels_of(&self, id: u32) -> Option<Vec<SceneFixtureChannels>> {
+        scene_channels(&self.show, self.compiled(), FunctionId(id))
+    }
+
+    pub fn add_scene_values_of(&self, values: &str, incoming: &str) -> Result<String, String> {
+        let values: Vec<SceneValue> = parse(values, "scene values")?;
+        let incoming: Vec<SceneValue> = parse(incoming, "scene values")?;
+        Ok(to_json(&scene_edit::add_scene_values(
+            &self.show,
+            self.compiled(),
+            &values,
+            &incoming,
+        )))
     }
 
     pub fn function_color_of(&self, id: u32) -> Option<Color> {
@@ -138,10 +150,18 @@ impl ShowView {
         ))
     }
 
-    /// JSON `FixturePreview[]`: what a scene sets on each fixture and
-    /// channel; undefined if the function is not a scene.
-    pub fn scene_preview(&self, id: u32) -> Option<String> {
-        self.scene_preview_of(id).map(|p| to_json(&p))
+    /// JSON `SceneFixtureChannels[]`: all the channels of the fixtures a
+    /// scene drives, with their values; undefined if the function is not a
+    /// scene.
+    pub fn scene_channels(&self, id: u32) -> Option<String> {
+        self.scene_channels_of(id).map(|p| to_json(&p))
+    }
+
+    /// JSON `SceneValue[]`: scene `values` after adding `incoming` (both JSON
+    /// `SceneValue[]`).
+    pub fn add_scene_values(&self, values: &str, incoming: &str) -> Result<String, JsError> {
+        self.add_scene_values_of(values, incoming)
+            .map_err(|e| JsError::new(&e))
     }
 
     /// Linear RGB `[r, g, b]` of the color a function shows (first color its
@@ -161,6 +181,36 @@ impl ShowView {
     pub fn group_layout(&self, group: u32) -> Option<String> {
         self.group_layout_of(group).map(|l| to_json(&l))
     }
+}
+
+// ---------------------------------------------------------------- scene edits
+
+fn set_scene_channel_json(
+    values: &str,
+    fixture: u32,
+    channel: &str,
+    value: Option<u8>,
+) -> Result<String, String> {
+    let values: Vec<SceneValue> = parse(values, "scene values")?;
+    let channel: ChannelRef = parse(channel, "channel")?;
+    Ok(to_json(&scene_edit::set_scene_channel(
+        &values,
+        FixtureId(fixture),
+        channel,
+        value,
+    )))
+}
+
+/// JSON `SceneValue[]`: scene `values` with one channel of a fixture set by
+/// hand to `value`, or released when `value` is undefined.
+#[wasm_bindgen]
+pub fn set_scene_channel(
+    values: &str,
+    fixture: u32,
+    channel: &str,
+    value: Option<u8>,
+) -> Result<String, JsError> {
+    set_scene_channel_json(values, fixture, channel, value).map_err(|e| JsError::new(&e))
 }
 
 // ---------------------------------------------------------------- movement
@@ -371,6 +421,20 @@ mod tests {
         .unwrap();
         let reds: Vec<f32> = m.cell_colors(0.25).chunks(3).map(|c| c[0]).collect();
         assert_eq!(reds, vec![0.0, 1.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn scene_channel_edit_json_shape() {
+        let channel = r#"{"type":"dmx","attribute":"Pan","index":0,"fine":false}"#;
+        let set = set_scene_channel_json("[]", 3, channel, Some(7)).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&set).unwrap();
+        assert_eq!(v[0]["target"]["id"], 3);
+        assert_eq!(v[0]["value"]["value"], 7);
+        assert_eq!(
+            set_scene_channel_json(&set, 3, channel, None).unwrap(),
+            "[]"
+        );
+        assert!(set_scene_channel_json("{", 3, channel, None).is_err());
     }
 
     #[test]

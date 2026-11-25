@@ -13,6 +13,7 @@ pub mod music;
 pub mod playback;
 pub mod preview;
 pub mod runner;
+pub mod scene_edit;
 pub mod shared;
 pub mod stats;
 

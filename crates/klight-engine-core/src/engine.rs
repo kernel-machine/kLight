@@ -13,9 +13,9 @@ use klight_model::runtime::{
 use klight_model::validate::{self, PatchError};
 use klight_model::vc::{ButtonAction, SliderMode, WidgetKind};
 use klight_model::{
-    Command, CommandEnvelope, CommandError, CommandOutcome, CommandResult, CommandSource,
-    ControlKey, FixtureId, Function, FunctionId, FunctionKind, OperatingMode, Palette, PaletteId,
-    Scene, SceneValue, Show, Target, ValueSource, WidgetId, UNIVERSE_SIZE,
+    Attribute, ChannelRef, Command, CommandEnvelope, CommandError, CommandOutcome, CommandResult,
+    CommandSource, ControlKey, FixtureId, Function, FunctionId, FunctionKind, OperatingMode,
+    Palette, PaletteId, Scene, SceneValue, Show, Target, ValueSource, WidgetId, UNIVERSE_SIZE,
 };
 
 use crate::compile::{
@@ -1414,12 +1414,28 @@ fn check_palette(p: &Palette) -> Result<(), CommandError> {
 fn check_function(f: &Function) -> Result<(), CommandError> {
     let check_values = |values: &[SceneValue]| -> Result<(), CommandError> {
         for v in values {
-            if let ValueSource::Explicit { value } = &v.value {
-                if value.targets_service_channel() {
-                    return Err(CommandError::invalid(
-                        "service channels cannot be stored in scenes or cues",
-                    ));
+            let service = match &v.value {
+                ValueSource::Explicit { value } => value.targets_service_channel(),
+                ValueSource::Channel { channel, .. } => {
+                    if !matches!(v.target, Target::Fixture { .. }) {
+                        return Err(CommandError::invalid(
+                            "channel values need a single fixture as target",
+                        ));
+                    }
+                    matches!(
+                        channel,
+                        ChannelRef::Dmx {
+                            attribute: Attribute::Maintenance,
+                            ..
+                        }
+                    )
                 }
+                ValueSource::Palette { .. } => false,
+            };
+            if service {
+                return Err(CommandError::invalid(
+                    "service channels cannot be stored in scenes or cues",
+                ));
             }
         }
         Ok(())

@@ -141,12 +141,43 @@ test('scene editor, movement preview, knob and DMX channel desk', async ({ page 
     await expect(page.locator('td', { hasText: text })).toBeVisible();
   }
 
-  // The scene lists the fixtures it drives and their channel values.
-  const preview = page.locator('.card', { hasText: 'Dimmer 1' });
+  // Below, one row of faders with every channel of the fixtures it drives.
+  const channels2 = page.getByRole('group', { name: 'Scene channels' });
   await expect(page.getByText('Fixtures in this scene (4)')).toBeVisible();
-  await expect(preview.locator('tbody tr').first()).toContainText('255');
+  const dimmer = channels2.getByLabel('Dimmer 1: Intensity value', { exact: true });
+  await expect(dimmer).toHaveValue('255');
   await page.getByRole('treeitem', { name: /Scene 2/ }).getByRole('button', { name: 'Start' }).click();
-  await expect(preview.locator('tbody tr .now').first()).toHaveText('255');
+  await expect(channels2.locator('.strip', { has: page.getByLabel('Dimmer 1: Intensity value', { exact: true }) }).locator('.now')).toHaveText('255');
+
+  // A fader moved by hand is stored in the scene (the summary row comes from
+  // the show the engine sends back). Dimmer 2: nothing else holds its output
+  // (the programmer still has Dimmer 1 at full).
+  const byHandFader = channels2.getByLabel('Dimmer 2: Intensity value', { exact: true });
+  const strip = channels2.locator('.strip', { has: page.getByLabel('Dimmer 2: Intensity value', { exact: true }) });
+  const byHand = page.getByText('1 channel set by hand');
+  await byHandFader.fill('100');
+  await byHandFader.press('Enter');
+  await expect(byHand).toBeVisible();
+  await expect(strip).toHaveClass(/\bset\b/);
+  await expect(strip.locator('.now')).toHaveText('100');
+  await channels2.getByRole('slider', { name: 'Dimmer 2: Intensity', exact: true }).fill('90');
+  await expect(strip.locator('.now')).toHaveText('90');
+  await expect(byHandFader).toHaveValue('90');
+  // Releasing gives the channel back to the values above.
+  await channels2.getByRole('button', { name: 'Release Dimmer 2: Intensity', exact: true }).click();
+  await expect(byHand).toHaveCount(0);
+  await expect(byHandFader).toHaveValue('255');
+  // Applying a value again releases the channels it writes.
+  await byHandFader.fill('100');
+  await byHandFader.press('Enter');
+  await expect(byHand).toBeVisible();
+  await page.getByLabel('Scene target').selectOption({ label: 'Group: Front' });
+  await page.getByLabel('Scene attribute').selectOption('intensity');
+  await page.getByRole('button', { name: 'Add to scene' }).click();
+  await expect(byHand).toHaveCount(0);
+  await expect(byHandFader).toHaveValue('255');
+  await page.getByLabel('Scene target').selectOption({ label: 'Group: Beams' });
+
   await expect.poll(async () => {
     const show = await (await page.request.get('/api/runtime')).json();
     return show.seq;
@@ -374,8 +405,40 @@ test('a color wheel fixture offers its wheel colors instead of a free picker', a
   await expect(page.locator('td', { hasText: 'Color #0000ff' })).toBeVisible();
 
   // The engine puts the wheel on that slot: Blue is 30-39, so 34.
-  const row = page.locator('.card', { hasText: 'Wheel spot' }).locator('tr', { hasText: 'Color Wheel' });
-  await expect(row).toContainText('34');
+  const fader = page.getByLabel('Wheel spot: Color Wheel value', { exact: true });
+  await expect(fader).toHaveValue('34');
+
+  // The channel still offers its slots, as in the Simple Desk.
+  await page.getByRole('button', { name: 'Presets of Wheel spot: Color Wheel', exact: true }).click();
+  await page.getByRole('option', { name: /Red/ }).click();
+  await expect(fader).toHaveValue('14');
+  // One byte of a 16-bit channel set by hand: the scene drives the other too.
+  const finePan = page.locator('.strip', { has: page.getByLabel('Wheel spot: Pan Fine value', { exact: true }) });
+  await expect(finePan).toHaveClass(/\bunset\b/);
+  const pan = page.getByLabel('Wheel spot: Pan value', { exact: true });
+  await pan.fill('100');
+  await pan.press('Enter');
+  await expect(finePan).toHaveClass(/\bpaired\b/);
+  await expect(finePan.getByRole('button', { name: /^Release/ })).toBeDisabled();
+  // Regression: the dashed border removed the thick one that marks where a
+  // fixture starts. Pan is its first channel: paired once only Pan Fine is set.
+  const finePanValue = page.getByLabel('Wheel spot: Pan Fine value', { exact: true });
+  await finePanValue.fill('7');
+  await finePanValue.press('Enter');
+  await expect(finePan).toHaveClass(/\bset\b/);
+  await page.getByRole('button', { name: 'Release Wheel spot: Pan', exact: true }).click();
+  const coarsePan = page.locator('.strip', { has: pan });
+  await expect(coarsePan).toHaveClass(/\bpaired\b/);
+  await expect(coarsePan).toHaveCSS('border-left-width', '3px');
+  await expect(coarsePan).toHaveCSS('border-top-style', 'dashed');
+  // One row of faders, scrolling sideways, that does not widen the page.
+  const strips = page.getByRole('group', { name: 'Scene channels' });
+  await page.setViewportSize({ width: 950, height: 720 });
+  expect(await strips.evaluate((e) => e.scrollWidth > e.clientWidth)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  const tops = await strips.locator('.strip').evaluateAll((all) => new Set(all.map((e) => e.getBoundingClientRect().top)).size);
+  expect(tops).toBe(1);
+  await page.setViewportSize({ width: 1280, height: 720 });
 
   // Once a palette is stored (Simple Desk), the editor offers it.
   await page.getByRole('button', { name: 'Simple Desk' }).click();

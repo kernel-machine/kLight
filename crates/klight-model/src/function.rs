@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::attributes::{AttributeKind, AttributeValue, Color};
+use crate::fixture_def::Attribute;
 use crate::ids::{FixtureId, FolderId, FunctionId, GroupId, PaletteId};
 
 /// A duration, either absolute or locked to the musical clock.
@@ -82,8 +83,36 @@ pub enum Target {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ValueSource {
-    Explicit { value: AttributeValue },
-    Palette { id: PaletteId },
+    Explicit {
+        value: AttributeValue,
+    },
+    Palette {
+        id: PaletteId,
+    },
+    /// One byte of one channel set by hand (the faders of the scene editor).
+    /// The target must be a single fixture.
+    Channel {
+        channel: ChannelRef,
+        value: u8,
+    },
+}
+
+/// A channel of a fixture, named independently of its DMX address and of its
+/// position in the mode, so that it survives a change of fixture model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ChannelRef {
+    /// The `index`-th channel (0-based, in mode order) with this attribute.
+    /// `fine` selects the low byte of a 16-bit channel.
+    Dmx {
+        attribute: Attribute,
+        index: u16,
+        #[serde(default)]
+        fine: bool,
+    },
+    /// The virtual dimmer of a head without an intensity channel.
+    VirtualDimmer { head: u16 },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
