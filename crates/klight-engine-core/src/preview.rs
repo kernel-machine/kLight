@@ -75,7 +75,8 @@ fn fixture_channels(
             origin: match entry {
                 Some(e) if e.manual & byte != 0 => ChannelOrigin::Manual,
                 Some(e) if e.set & byte != 0 => ChannelOrigin::Value,
-                _ => ChannelOrigin::Unset,
+                Some(_) => ChannelOrigin::Paired,
+                None => ChannelOrigin::Unset,
             },
             locked: lc.attribute == Attribute::Maintenance,
         })

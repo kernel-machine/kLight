@@ -1,7 +1,8 @@
 <script lang="ts">
   // Scene contents: which groups/fixtures and which intentions.
-  import { app, run } from '../lib/app.svelte';
+  import { app, notify, run } from '../lib/app.svelte';
   import SceneFaders from './SceneFaders.svelte';
+  import { editQueue } from '../lib/queue';
   import { capabilityNames, colorToHex, describeTarget, describeValue, groupFixtures, hexToColor } from '../lib/show';
   import { addSceneValues, colorChoices, sceneValueColor, setSceneChannel, valueSupport } from '../lib/core';
   import type { AttributeValue, ChannelRef, FanMode, Function as Fn, Scene, SceneValue, Show, Target, ValueSource } from '../lib/protocol';
@@ -94,17 +95,16 @@
 
   // Edits are queued and each one is applied to the latest version of the
   // scene: quick successive clicks must not overwrite each other.
-  let queue: Promise<unknown> = Promise.resolve();
+  const enqueue = editQueue((e) => notify(String(e), 'error'));
   function update(change: (values: SceneValue[], show: Show) => SceneValue[]) {
     const id = f.id;
-    queue = queue.then(() => {
+    return enqueue(() => {
       const latest = app.s.show;
       const current = latest?.functions.find((x) => x.id === id);
       if (!latest || !current || current.kind.type !== 'scene') return;
       const values = change(current.kind.values, latest);
       return run({ type: 'set_function', function: { ...current, kind: { ...current.kind, values } } });
     });
-    return queue;
   }
 
   function add() {

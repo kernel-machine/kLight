@@ -365,6 +365,9 @@ pub enum ChannelOrigin {
     Value,
     /// Set by hand.
     Manual,
+    /// The other byte of this 16-bit channel is set by hand: channels merge
+    /// whole, so the scene drives this one too, at the channel default.
+    Paired,
 }
 
 /// One channel of a fixture driven by a scene, as the engine computes it.

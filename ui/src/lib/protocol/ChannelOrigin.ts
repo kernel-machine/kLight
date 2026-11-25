@@ -3,4 +3,4 @@
 /**
  * Where the value of a channel in a scene comes from.
  */
-export type ChannelOrigin = "unset" | "value" | "manual";
+export type ChannelOrigin = "unset" | "value" | "manual" | "paired";

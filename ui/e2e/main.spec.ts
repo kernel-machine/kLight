@@ -412,6 +412,14 @@ test('a color wheel fixture offers its wheel colors instead of a free picker', a
   await page.getByRole('button', { name: 'Presets of Wheel spot: Color Wheel', exact: true }).click();
   await page.getByRole('option', { name: /Red/ }).click();
   await expect(fader).toHaveValue('14');
+  // One byte of a 16-bit channel set by hand: the scene drives the other too.
+  const finePan = page.locator('.strip', { has: page.getByLabel('Wheel spot: Pan Fine value', { exact: true }) });
+  await expect(finePan).toHaveClass(/\bunset\b/);
+  const pan = page.getByLabel('Wheel spot: Pan value', { exact: true });
+  await pan.fill('100');
+  await pan.press('Enter');
+  await expect(finePan).toHaveClass(/\bpaired\b/);
+  await expect(finePan.getByRole('button', { name: /^Release/ })).toBeDisabled();
   // One row of faders, scrolling sideways, that does not widen the page.
   const strips = page.getByRole('group', { name: 'Scene channels' });
   await page.setViewportSize({ width: 950, height: 720 });

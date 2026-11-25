@@ -81,12 +81,13 @@
             attribute={c.attribute}
             value={v}
             label="{f.fixture_name}: {c.channel_name}"
-            title="{f.fixture_name} — {c.channel_name}{preset ? `: ${preset.name}` : ''}{c.locked ? ' (service channel: not stored in scenes)' : ''}"
+            title="{f.fixture_name} — {c.channel_name}{preset ? `: ${preset.name}` : ''}{c.locked ? ' (service channel: not stored in scenes)' : ''}{c.origin === 'paired' ? ' (held at its default: the other byte of this 16-bit channel is set by hand)' : ''}"
             alt={n % 2 === 1}
             first={i === 0}
             set={c.origin === 'manual' || key in local}
             scene={c.origin === 'value'}
             unset={c.origin === 'unset' && !(key in local)}
+            paired={c.origin === 'paired' && !(key in local)}
             disabled={c.locked}
             now={live(f.universe, c.address)}
             onchoose={choosable ? (e) => openPicker(e, f, c) : undefined}
@@ -100,7 +101,8 @@
     {/each}
   </div>
   <p class="muted small">
-    Blue border: set by the values above. Orange border: set by hand (× gives it back). Dimmed: not set by this scene.
+    Blue border: set by the values above. Orange border: set by hand (× gives it back). Dashed orange: held at its
+    default because the other byte of its 16-bit channel is set by hand. Dimmed: not set by this scene.
     The small number is the output right now.
   </p>
 {/if}

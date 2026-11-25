@@ -240,9 +240,14 @@ consoles (grandMA, MagicQ), with a simple interface.
   Single channels of a fixture can also be **set by hand** (one DMX byte, or a
   virtual dimmer): they are named by attribute, not by address, so they stay
   valid when the fixture model changes (a channel the new model lacks is
-  ignored with a warning). Values apply in order: a channel set by hand wins
-  over the older values, and applying a new intention or palette releases the
-  channels it writes.
+  ignored with a warning). Repeated attributes (two color wheels, several gobo
+  or generic channels) are told apart by their order in the mode: a model that
+  orders them differently receives the value on another one, without a warning.
+  Channels merge whole: setting one byte of a 16-bit channel by hand makes the
+  scene drive both, the other at the channel default unless another value of
+  the scene sets it (the editor marks it as such). Values apply in order: a
+  channel set by hand wins over the older values, and applying a new intention
+  or palette releases the channels it writes.
 - `Chaser` — sequence of steps (scene references) with times, direction, mode.
 - `CueList` — cues with times, Go/Back/Pause, current cue.
 - `MovementEffect` (EFX) — pan/tilt generators: circle, eight, line, square,

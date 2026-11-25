@@ -93,15 +93,44 @@ fn a_channel_set_by_hand_overrides_one_byte_of_an_intention() {
 }
 
 #[test]
-fn a_channel_set_by_hand_alone_drives_only_that_byte() {
+fn a_byte_set_by_hand_alone_takes_the_whole_16_bit_channel() {
+    // Another scene drives both bytes of the pan.
+    let other = vec![explicit(fixture(SPOT1), position(30.0))];
+    let [_, other_fine] = klight_fixtures::convert::degrees_to_dmx16(30.0, 540.0).to_be_bytes();
     let values = vec![manual(SPOT1, pan(false), 200)];
-    let e = run_scene(values.clone());
-    assert_eq!(dmx(&e, 40), 200);
+    let mut e = run_scene(other);
+    ok(
+        &mut e,
+        20,
+        Command::SetFunction {
+            function: scene(2, values.clone(), 0),
+        },
+    );
+    ok(&mut e, 20, Command::StartFunction { id: FunctionId(2) });
+    e.tick(30);
+    let default_fine = channel_of(values.clone(), SPOT1, pan(true)).0;
+    assert_ne!(other_fine, default_fine);
+    // Channels merge as a whole (LTP): the newer scene takes both bytes...
+    assert_eq!((dmx(&e, 40), dmx(&e, 41)), (200, default_fine));
+    // ...so the editor must not report the other one as left alone.
     assert_eq!(
         channel_of(values.clone(), SPOT1, pan(false)),
         (200, ChannelOrigin::Manual)
     );
-    assert_eq!(channel_of(values, SPOT1, pan(true)).1, ChannelOrigin::Unset);
+    assert_eq!(
+        channel_of(values, SPOT1, pan(true)),
+        (default_fine, ChannelOrigin::Paired)
+    );
+}
+
+#[test]
+fn releasing_one_of_two_bytes_set_by_hand_leaves_it_paired() {
+    let both = vec![manual(SPOT1, pan(false), 200), manual(SPOT1, pan(true), 7)];
+    let released = set_scene_channel(&both, SPOT1, pan(true), None);
+    assert_eq!(
+        channel_of(released, SPOT1, pan(true)).1,
+        ChannelOrigin::Paired
+    );
 }
 
 #[test]

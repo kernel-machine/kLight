@@ -19,6 +19,7 @@
     set = false,
     scene = false,
     unset = false,
+    paired = false,
     disabled = false,
     now = undefined,
     onchoose,
@@ -50,6 +51,8 @@
     scene?: boolean;
     /** Nothing sets it (default value). */
     unset?: boolean;
+    /** Driven only because the other byte of its channel is set by hand. */
+    paired?: boolean;
     disabled?: boolean;
     /** Value on the output right now, when shown. */
     now?: number | null;
@@ -67,7 +70,7 @@
   const clamp = (text: string) => Math.max(0, Math.min(255, Math.round(Number(text) || 0)));
 </script>
 
-<div class="strip" class:set class:scene class:unset class:patched class:alt class:first {title}>
+<div class="strip" class:set class:scene class:unset class:paired class:patched class:alt class:first {title}>
   <div class="addr">{address}</div>
   {#if attribute !== null && onchoose}
     <button class="icon choose" title="Choose: {channel}" aria-label="Presets of {subject}" aria-haspopup="listbox" {disabled} onclick={onchoose}>
@@ -111,6 +114,7 @@
   .strip.patched.alt { background: color-mix(in srgb, var(--ok) 8%, var(--panel)); }
   .strip.first { border-left: 3px solid var(--accent); }
   .strip.scene { border-color: var(--accent); }
+  .strip.paired { border: 1px dashed var(--warn); }
   .strip.set { border-color: var(--warn); box-shadow: inset 0 0 0 1px var(--warn); }
   .strip.unset input { opacity: 0.55; }
   .icon { height: 16px; }
