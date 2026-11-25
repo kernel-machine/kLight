@@ -420,6 +420,17 @@ test('a color wheel fixture offers its wheel colors instead of a free picker', a
   await pan.press('Enter');
   await expect(finePan).toHaveClass(/\bpaired\b/);
   await expect(finePan.getByRole('button', { name: /^Release/ })).toBeDisabled();
+  // Regression: the dashed border removed the thick one that marks where a
+  // fixture starts. Pan is its first channel: paired once only Pan Fine is set.
+  const finePanValue = page.getByLabel('Wheel spot: Pan Fine value', { exact: true });
+  await finePanValue.fill('7');
+  await finePanValue.press('Enter');
+  await expect(finePan).toHaveClass(/\bset\b/);
+  await page.getByRole('button', { name: 'Release Wheel spot: Pan', exact: true }).click();
+  const coarsePan = page.locator('.strip', { has: pan });
+  await expect(coarsePan).toHaveClass(/\bpaired\b/);
+  await expect(coarsePan).toHaveCSS('border-left-width', '3px');
+  await expect(coarsePan).toHaveCSS('border-top-style', 'dashed');
   // One row of faders, scrolling sideways, that does not widen the page.
   const strips = page.getByRole('group', { name: 'Scene channels' });
   await page.setViewportSize({ width: 950, height: 720 });

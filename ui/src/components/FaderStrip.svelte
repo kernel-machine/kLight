@@ -114,7 +114,7 @@
   .strip.patched.alt { background: color-mix(in srgb, var(--ok) 8%, var(--panel)); }
   .strip.first { border-left: 3px solid var(--accent); }
   .strip.scene { border-color: var(--accent); }
-  .strip.paired { border: 1px dashed var(--warn); }
+  .strip.paired { border-style: dashed; border-color: var(--warn); }
   .strip.set { border-color: var(--warn); box-shadow: inset 0 0 0 1px var(--warn); }
   .strip.unset input { opacity: 0.55; }
   .icon { height: 16px; }
