@@ -3,4 +3,4 @@
 /**
  * Type of a function, used to list functions by type and to scope folders.
  */
-export type FunctionCategory = "scene" | "chaser" | "cue_list" | "movement_effect" | "matrix_effect";
+export type FunctionCategory = "scene" | "chaser" | "cue_list" | "movement_effect" | "matrix_effect" | "collection";

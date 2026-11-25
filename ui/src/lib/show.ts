@@ -28,6 +28,7 @@ export {
   beatChoices,
   channelMap,
   chaserStepTypes,
+  collectionMemberTypes,
   colorSequence,
   colorToHex,
   conflictsWith,
@@ -124,6 +125,7 @@ export const FUNCTION_CATEGORIES: Array<{ id: FunctionCategory; label: string; o
   { id: 'cue_list', label: 'Cue lists', one: 'cue list', short: 'Cue list' },
   { id: 'movement_effect', label: 'Movements', one: 'movement', short: 'Movement' },
   { id: 'matrix_effect', label: 'Matrix effects', one: 'matrix effect', short: 'Matrix' },
+  { id: 'collection', label: 'Collections', one: 'collection', short: 'Collection' },
 ];
 
 const byName = (a: { name: string }, b: { name: string }) =>

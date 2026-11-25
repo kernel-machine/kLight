@@ -1,6 +1,6 @@
 <script lang="ts">
   // Chaser contents: step times, run mode and the ordered list of steps
-  // (scenes and effects).
+  // (scenes, effects and collections).
   import { app, notify, run } from '../lib/app.svelte';
   import { editQueue } from '../lib/queue';
   import { FUNCTION_CATEGORIES, chaserStepTypes } from '../lib/show';
@@ -121,12 +121,12 @@
       <button onclick={() => remove(chaser.steps, i)} aria-label="Remove step {i + 1}">×</button>
     </li>
   {:else}
-    <li class="muted">No steps yet: add some scenes or effects.</li>
+    <li class="muted">No steps yet: add some scenes, effects or collections.</li>
   {/each}
 </ol>
 <div class="row">
   <button class="primary" disabled={!hasPlayable} onclick={() => (picking = f.id)}>Add steps…</button>
-  {#if !hasPlayable}<span class="muted">Create a scene or an effect first.</span>
+  {#if !hasPlayable}<span class="muted">Create a scene, an effect or a collection first.</span>
   {:else if chaser.steps.length > 1}<span class="muted">Order the steps with the arrows, or drag them with the mouse.</span>{/if}
 </div>
 {#if hasEffects}<p class="muted">The fade crossfades scenes: effects start and stop at once.</p>{/if}
@@ -135,7 +135,7 @@
   <FunctionPickerDialog
     title="Add steps to {f.name}"
     only={stepTypes}
-    empty="There are no scenes or effects yet."
+    empty="There is nothing a step can play yet."
     confirmLabel={(n) => `Add ${n} step${n === 1 ? '' : 's'}`}
     onconfirm={addSteps}
     onclose={() => (picking = null)}

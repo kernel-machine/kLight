@@ -67,9 +67,10 @@ pub struct ActiveFunction {
     pub position: Option<u32>,
     #[serde(default)]
     pub paused: bool,
-    /// Function played by the current step (chasers).
+    /// Functions played inside this one: the current step of a chaser and the
+    /// members of a collection (itself running, or as that step).
     #[serde(default)]
-    pub step_function: Option<FunctionId>,
+    pub playing: Vec<FunctionId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

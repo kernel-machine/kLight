@@ -447,8 +447,8 @@ fn chaser_at_120_bpm_changes_step_every_500ms() {
         let playing = if step.0 > 0 { 1 } else { 2 };
         let snapshot = e.shared().snapshot.load_full();
         assert_eq!(
-            snapshot.state.active.first().and_then(|a| a.step_function),
-            Some(FunctionId(playing)),
+            snapshot.state.active.first().map(|a| a.playing.clone()),
+            Some(vec![FunctionId(playing)]),
             "at {t} µs"
         );
     }
@@ -854,13 +854,7 @@ fn chaser_plays_movement_and_matrix_steps() {
 
     // Movement step: the head starts its cycle with the step.
     e.tick(1_000_000);
-    let playing = e
-        .snapshot()
-        .state
-        .active
-        .first()
-        .and_then(|a| a.step_function);
-    assert_eq!(playing, Some(FunctionId(30)));
+    assert_eq!(e.snapshot().state.active[0].playing, vec![FunctionId(30)]);
     assert_eq!(dmx(&e, 1), 0);
     let start = dmx(&e, 40);
     assert_ne!(start, still);
@@ -930,13 +924,7 @@ fn editing_an_effect_changes_the_running_chaser_step_at_once() {
     ok(&mut e, 2_000_000, Command::SetFunction { function: matrix });
     e.tick(2_100_000);
     assert_eq!(matrix_reds(&e), vec![0, 0, 255, 0]);
-    let playing = e
-        .snapshot()
-        .state
-        .active
-        .first()
-        .and_then(|a| a.step_function);
-    assert_eq!(playing, Some(FunctionId(40)));
+    assert_eq!(e.snapshot().state.active[0].playing, vec![FunctionId(40)]);
 }
 
 #[test]
@@ -974,17 +962,9 @@ fn chasers_and_cue_lists_cannot_be_chaser_steps() {
     e.tick(0);
     let warnings = e.snapshot().warnings;
     assert_eq!(warnings.len(), 2, "{warnings:?}");
-    assert!(warnings
-        .iter()
-        .all(|w| w.contains("not a playable scene or effect")));
+    assert!(warnings.iter().all(|w| w.contains("a chaser cannot play")));
     // Only the scene is left: the chaser plays it and nothing else.
-    let playing = e
-        .snapshot()
-        .state
-        .active
-        .first()
-        .and_then(|a| a.step_function);
-    assert_eq!(playing, Some(FunctionId(1)));
+    assert_eq!(e.snapshot().state.active[0].playing, vec![FunctionId(1)]);
     assert_eq!((dmx(&e, 1), dmx(&e, 2)), (255, 0));
     e.tick(1_000_000);
     assert_eq!((dmx(&e, 1), dmx(&e, 2)), (255, 0));
@@ -1050,11 +1030,11 @@ fn chaser_position_counts_invalid_steps_too() {
             .state
             .active
             .first()
-            .map(|a| (a.position, a.step_function))
+            .map(|a| (a.position, a.playing.clone()))
     };
-    assert_eq!(at(&e), Some((Some(1), Some(FunctionId(1)))));
+    assert_eq!(at(&e), Some((Some(1), vec![FunctionId(1)])));
     e.tick(1_000_000);
-    assert_eq!(at(&e), Some((Some(2), Some(FunctionId(30)))));
+    assert_eq!(at(&e), Some((Some(2), vec![FunctionId(30)])));
 
     // Restored from that position, it plays the same step.
     let state = e.runtime_state();
@@ -1062,7 +1042,7 @@ fn chaser_position_counts_invalid_steps_too() {
     let mut restored = engine(show);
     restored.restore(1_000_000, &state);
     restored.tick(1_000_000);
-    assert_eq!(at(&restored), Some((Some(2), Some(FunctionId(30)))));
+    assert_eq!(at(&restored), Some((Some(2), vec![FunctionId(30)])));
 }
 
 #[test]

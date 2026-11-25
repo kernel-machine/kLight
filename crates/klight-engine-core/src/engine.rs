@@ -19,7 +19,8 @@ use klight_model::{
 };
 
 use crate::compile::{
-    CompiledFunction, CompiledShow, LogicalChannel, Merge, Role, StepContent, NO_ADDR, NO_CHANNEL,
+    CompiledFunction, CompiledMatrix, CompiledMovement, CompiledShow, LogicalChannel, Merge, Role,
+    StepContent, NO_ADDR, NO_CHANNEL,
 };
 use crate::effects::{cycle_turns, render_matrix, render_movement};
 use crate::frame::{DmxFrame, FrameSlot};
@@ -56,6 +57,8 @@ struct Runtime {
     pool: Vec<SceneInstance>,
     base: Layer,
     effects: Layer,
+    /// Work layer to merge the scenes of a collection.
+    mix: Layer,
     programmer: Layer,
     programmer_entries: Vec<ProgrammerEntry>,
     /// Raw Simple Desk channels per universe (parallel to `compiled.universes`).
@@ -117,6 +120,7 @@ impl Engine {
                 pool: Vec::with_capacity(256),
                 base: Layer::default(),
                 effects: Layer::default(),
+                mix: Layer::default(),
                 programmer: Layer::default(),
                 programmer_entries: Vec::new(),
                 raw: Vec::new(),
@@ -172,12 +176,16 @@ impl Engine {
                 .playbacks
                 .iter()
                 .filter(|p| !p.stopping)
-                .map(|p| ActiveFunction {
-                    id: p.id,
-                    level: f32::from(p.level) / 65535.0,
-                    position: p.position(),
-                    paused: p.paused_since.is_some(),
-                    step_function: p.step_function(),
+                .map(|p| {
+                    let mut playing = Vec::new();
+                    p.playing(&mut playing);
+                    ActiveFunction {
+                        id: p.id,
+                        level: f32::from(p.level) / 65535.0,
+                        position: p.position(),
+                        paused: p.paused_since.is_some(),
+                        playing,
+                    }
                 })
                 .collect(),
             programmer: self.rt.programmer_entries.clone(),
@@ -225,6 +233,7 @@ impl Engine {
         let n = compiled.channel_count();
         self.rt.base.resize(n);
         self.rt.effects.resize(n);
+        self.rt.mix.resize(n);
         self.rt.programmer.resize(n);
         self.rt.merged.resize(n, 0);
 
@@ -271,25 +280,29 @@ impl Engine {
             };
             let channels = &self.compiled.channels;
             let base = &self.rt.base;
+            let ctx = Ctx {
+                now_us: now,
+                music: &self.rt.music,
+                base,
+                channels,
+            };
             match (&mut p.kind, cf) {
                 (PlaybackKind::Scene(s), CompiledFunction::Scene(new)) => {
                     *s = new.clone();
-                    p.instances.clear();
-                    let mut inst = SceneInstance::default();
-                    inst.rebind(new, now, bpm, base, channels);
-                    p.instances.push(inst);
+                    p.show_now(&mut self.rt.pool, &StepContent::Scene(new), &ctx);
                 }
                 (PlaybackKind::Chaser(state), CompiledFunction::Chaser(new)) => {
                     state.step = state.step.min(new.steps.len().saturating_sub(1));
-                    p.instances.clear();
-                    if let Some(StepContent::Scene(scene)) =
-                        new.steps.get(state.step).map(|s| &s.content)
-                    {
-                        let mut inst = SceneInstance::default();
-                        inst.rebind(scene.clone(), now, bpm, base, channels);
-                        p.instances.push(inst);
-                    }
+                    let content = new.steps.get(state.step).map(|s| s.content.clone());
                     state.chaser = new;
+                    match content {
+                        Some(content) => p.show_now(&mut self.rt.pool, &content, &ctx),
+                        None => p.instances.clear(),
+                    }
+                }
+                (PlaybackKind::Collection(c), CompiledFunction::Collection(new)) => {
+                    *c = new.clone();
+                    p.show_now(&mut self.rt.pool, &StepContent::Collection(new), &ctx);
                 }
                 (PlaybackKind::CueList(state), CompiledFunction::CueList(new)) => {
                     p.instances.clear();
@@ -894,6 +907,14 @@ impl Engine {
             }),
             CompiledFunction::Movement(m) => PlaybackKind::Movement(m),
             CompiledFunction::Matrix(m) => PlaybackKind::Matrix(m),
+            CompiledFunction::Collection(c) => {
+                if c.members.is_empty() {
+                    return Err(CommandError::invalid(
+                        "collection has no playable functions",
+                    ));
+                }
+                PlaybackKind::Collection(c)
+            }
         };
         let mut p = Playback {
             id,
@@ -905,6 +926,7 @@ impl Engine {
             started_us: now,
             started_beat,
             paused_since: None,
+            groups: 0,
         };
         {
             let (ctx, _, pool) = self.ctx_parts();
@@ -1269,54 +1291,54 @@ impl Engine {
         self.rt.base.clear();
         self.rt.effects.clear();
         for p in &self.rt.playbacks {
-            match &p.kind {
+            // Scenes (also those fading out) go to the base layer.
+            p.render_base(now, channels, &mut self.rt.base, &mut self.rt.mix);
+            // Effects have no fade out: none while stopping.
+            if p.stopping {
+                continue;
+            }
+            // An effect runs from the start of its function or chaser step.
+            let (start_us, start_beat, t) = match &p.kind {
+                PlaybackKind::Chaser(c) => (c.step_start_us, c.step_start_beat, p.render_time(now)),
+                _ => (p.started_us, p.started_beat, now),
+            };
+            let turns = |period| cycle_turns(period, start_us, start_beat, t, &self.rt.music);
+            let movement = |m: &CompiledMovement, layer: &mut Layer| {
+                render_movement(m, turns(m.effect.period), channels, layer);
+            };
+            let matrix = |m: &CompiledMatrix, layer: &mut Layer| {
+                render_matrix(m, turns(m.period), p.level, channels, layer);
+            };
+            let effects = &mut self.rt.effects;
+            let collection = match &p.kind {
                 PlaybackKind::Movement(m) => {
-                    let t = cycle_turns(
-                        m.effect.period,
-                        p.started_us,
-                        p.started_beat,
-                        now,
-                        &self.rt.music,
-                    );
-                    render_movement(m, t, channels, &mut self.rt.effects);
+                    movement(m, effects);
+                    None
                 }
                 PlaybackKind::Matrix(m) => {
-                    let t =
-                        cycle_turns(m.period, p.started_us, p.started_beat, now, &self.rt.music);
-                    render_matrix(m, t, p.level, channels, &mut self.rt.effects);
+                    matrix(m, effects);
+                    None
                 }
+                PlaybackKind::Collection(c) => Some(c),
                 PlaybackKind::Chaser(state) => {
-                    // Scenes (also those fading out) go to the base layer.
-                    p.render_base(now, channels, &mut self.rt.base);
-                    let Some(step) = state.chaser.steps.get(state.step) else {
-                        continue;
-                    };
-                    if p.stopping {
-                        continue;
-                    }
-                    // An effect step runs from the start of the step.
-                    let turns = |period| {
-                        cycle_turns(
-                            period,
-                            state.step_start_us,
-                            state.step_start_beat,
-                            p.render_time(now),
-                            &self.rt.music,
-                        )
-                    };
-                    match &step.content {
-                        StepContent::Scene(_) => {}
-                        StepContent::Movement(m) => {
-                            let t = turns(m.effect.period);
-                            render_movement(m, t, channels, &mut self.rt.effects);
+                    match state.chaser.steps.get(state.step).map(|s| &s.content) {
+                        Some(StepContent::Movement(m)) => {
+                            movement(m, effects);
+                            None
                         }
-                        StepContent::Matrix(m) => {
-                            let t = turns(m.period);
-                            render_matrix(m, t, p.level, channels, &mut self.rt.effects);
+                        Some(StepContent::Matrix(m)) => {
+                            matrix(m, effects);
+                            None
                         }
+                        Some(StepContent::Collection(c)) => Some(c),
+                        Some(StepContent::Scene(_)) | None => None,
                     }
                 }
-                _ => p.render_base(now, channels, &mut self.rt.base),
+                PlaybackKind::Scene(_) | PlaybackKind::CueList(_) => None,
+            };
+            if let Some(c) = collection {
+                c.movements.iter().for_each(|m| movement(m, effects));
+                c.matrices.iter().for_each(|m| matrix(m, effects));
             }
         }
 
@@ -1390,7 +1412,7 @@ impl Engine {
             let bpm = self.rt.music.bpm();
             let id = a.id;
             let position = a.position;
-            let (ctx, playbacks, _) = self.ctx_parts();
+            let (ctx, playbacks, pool) = self.ctx_parts();
             if let Some(p) = playbacks.iter_mut().rev().find(|p| p.id == id) {
                 p.level = f32_to16(level);
                 match (&mut p.kind, position) {
@@ -1411,24 +1433,14 @@ impl Engine {
                             .steps
                             .iter()
                             .enumerate()
-                            .find(|(_, s)| s.index == pos as usize);
-                        if let Some((i, step)) = found {
+                            .find(|(_, s)| s.index == pos as usize)
+                            .map(|(i, s)| (i, s.content.clone()));
+                        if let Some((i, content)) = found {
                             state.step = i;
-                            p.instances.clear();
-                            if let StepContent::Scene(scene) = &step.content {
-                                let mut inst = SceneInstance::default();
-                                inst.rebind(scene.clone(), now, bpm, ctx.base, ctx.channels);
-                                p.instances.push(inst);
-                            }
+                            p.show_now(pool, &content, &ctx);
                         }
                     }
-                    _ => {
-                        for inst in &mut p.instances {
-                            if let Some(scene) = inst.scene.clone() {
-                                inst.rebind(scene, now, bpm, ctx.base, ctx.channels);
-                            }
-                        }
-                    }
+                    _ => p.snap(&ctx),
                 }
                 if a.paused {
                     p.toggle_pause(now);
@@ -1501,7 +1513,10 @@ fn check_function(f: &Function) -> Result<(), CommandError> {
             }
             Ok(())
         }
-        FunctionKind::MovementEffect(_) | FunctionKind::MatrixEffect(_) => Ok(()),
+        // Members of the wrong type are dropped with a warning when compiled.
+        FunctionKind::Collection(_)
+        | FunctionKind::MovementEffect(_)
+        | FunctionKind::MatrixEffect(_) => Ok(()),
     }
 }
 

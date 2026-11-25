@@ -694,3 +694,57 @@ test('the function of a virtual console button is picked in a dialog', async ({ 
   await last.check();
   await expect(last).toBeInViewport({ ratio: 1 });
 });
+
+test('a collection plays functions together and can be a chaser step', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByText('Engine: connected')).toBeVisible();
+  await page.getByRole('button', { name: 'FX', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  const name = page.locator('.editor input').first();
+
+  // A new collection asks what it plays: scenes and effects, nothing that
+  // contains other functions.
+  await page.getByRole('button', { name: 'New collection', exact: true }).click();
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('treeitem', { name: /Movements/ })).toBeVisible();
+  await expect(dialog.getByRole('treeitem', { name: /Chasers|Cue lists|Collections/ })).toHaveCount(0);
+  await dialog.getByLabel('Select Step A', { exact: true }).check();
+  await dialog.getByLabel('Select Step B', { exact: true }).check();
+  await dialog.getByRole('button', { name: 'Add 2 functions' }).click();
+  await expect(dialog).toHaveCount(0);
+  const members = page.getByRole('list', { name: 'Collection functions' }).locator('li');
+  await expect(members.locator('.name')).toHaveText(['Step A', 'Step B']);
+  await name.fill('Both looks');
+  await name.press('Enter');
+  await expect(page.getByRole('treeitem', { name: /Both looks/ }).locator('[data-icon]')).toHaveAttribute('data-icon', 'collection');
+
+  // Members are offered once only.
+  await page.getByRole('button', { name: 'Add functions…' }).click();
+  await expect(dialog.getByLabel('Select Step C', { exact: true })).toBeVisible();
+  await expect(dialog.getByLabel('Select Step A', { exact: true })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Remove Step B' }).click();
+  await expect(members.locator('.name')).toHaveText(['Step A']);
+
+  // A chaser can step through it.
+  await page.getByRole('button', { name: 'New chaser', exact: true }).click();
+  await dialog.getByLabel('Select Both looks', { exact: true }).check();
+  await dialog.getByRole('button', { name: 'Add 1 step' }).click();
+  await expect(dialog).toHaveCount(0);
+  const steps = page.getByRole('list', { name: 'Chaser steps' }).locator('li');
+  await expect(steps.locator('.type')).toHaveText('Collection');
+  await name.fill('Through collections');
+  await name.press('Enter');
+  await page.getByRole('treeitem', { name: /Both looks/ }).click();
+
+  // Running, it lights the buttons of what it plays.
+  await page.getByRole('treeitem', { name: /Both looks/ }).getByRole('button', { name: 'Start' }).click();
+  await expect(members.first()).toHaveClass(/current/);
+  await page.getByRole('button', { name: 'Virtual Console' }).click();
+  const stepButton = page.locator('.w.button', { hasText: 'Step A' }).last();
+  await expect(stepButton).toHaveClass(/\bon\b/);
+  await page.getByRole('button', { name: 'FX', exact: true }).click();
+  await page.getByRole('treeitem', { name: /Both looks/ }).getByRole('button', { name: 'Stop' }).click();
+  await page.getByRole('button', { name: 'Virtual Console' }).click();
+  await expect(stepButton).not.toHaveClass(/\bon\b/);
+});

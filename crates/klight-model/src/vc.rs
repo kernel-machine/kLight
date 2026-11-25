@@ -20,8 +20,8 @@ pub enum WidgetLight {
 /// Light of a widget bound to `function`. A blackout button follows the
 /// blackout. Other widgets are lit while their function runs; a button that
 /// starts it ([`ButtonAction::Toggle`] or [`ButtonAction::Flash`]) is also lit
-/// while a step of a running chaser plays it. The function's own state wins
-/// over the chasers', and a running chaser over a paused one.
+/// while a running chaser or collection plays it. The function's own state wins
+/// over theirs, and a running one over a paused one.
 pub fn widget_light(
     kind: &WidgetKind,
     function: Option<FunctionId>,
@@ -61,10 +61,10 @@ pub fn widget_light(
     ) {
         return WidgetLight::Off;
     }
-    // `false < true`: a running chaser wins over a paused one.
+    // `false < true`: a running one wins over a paused one.
     active
         .iter()
-        .filter(|a| a.step_function == Some(f))
+        .filter(|a| a.playing.contains(&f))
         .map(|a| a.paused)
         .min()
         .map_or(WidgetLight::Off, light)
@@ -212,7 +212,7 @@ mod tests {
             level: 1.0,
             position: None,
             paused,
-            step_function,
+            playing: step_function.into_iter().collect(),
         }
     }
 

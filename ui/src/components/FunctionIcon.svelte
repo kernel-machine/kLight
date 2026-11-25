@@ -26,6 +26,8 @@
       <path d="M6 3.5h8.5M6 8h8.5M6 12.5h8.5M2 3.5h.5M2 8h.5M2 12.5h.5" />
     {:else if f.kind.type === 'movement_effect'}
       <path d="M8 8c-1.3-1.9-2.4-3-3.9-3a3 3 0 0 0 0 6c1.5 0 2.6-1.1 3.9-3s2.4-3 3.9-3a3 3 0 0 1 0 6c-1.5 0-2.6-1.1-3.9-3Z" />
+    {:else if f.kind.type === 'collection'}
+      <path d="M8 1.5 14.5 4.8 8 8.1 1.5 4.8ZM1.8 8.2 8 11.3l6.2-3.1M1.8 11.4 8 14.5l6.2-3.1" />
     {:else}
       <g fill="currentColor" stroke="none">
         {#each [1.5, 6.5, 11.5] as y (y)}

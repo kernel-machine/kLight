@@ -188,7 +188,7 @@
 
 <div class="tree" role="tree">
   {#if !visibleCategories.length}
-    <p class="muted empty-all">Nothing yet: create a scene, chaser, cue list or effect above.</p>
+    <p class="muted empty-all">Nothing yet: create a scene, chaser, cue list, effect or collection above.</p>
   {/if}
   {#each visibleCategories as c (c.id)}
     {@const key = `c:${c.id}`}

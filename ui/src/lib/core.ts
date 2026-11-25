@@ -4,7 +4,7 @@
 //
 // Call `initCore()` once before using anything else.
 
-import init, { initSync, ShowView, MovementView, MatrixView, linear_to_hex, hex_to_linear, set_scene_channel, max_sequence_colors, color_sequence_json, beat_flash_bits, widget_light_code, chaser_step_types, beat_choices } from './wasm/klight_wasm.js';
+import init, { initSync, ShowView, MovementView, MatrixView, linear_to_hex, hex_to_linear, set_scene_channel, max_sequence_colors, color_sequence_json, beat_flash_bits, widget_light_code, chaser_step_types, beat_choices, collection_member_types } from './wasm/klight_wasm.js';
 import type {
   ActiveFunction,
   FunctionCategory,
@@ -208,6 +208,9 @@ export function widgetLight(kind: WidgetKind, fn: number | null, blackout: boole
 
 /** Types of function a chaser step can play. */
 export const chaserStepTypes = (): FunctionCategory[] => JSON.parse(chaser_step_types()) as FunctionCategory[];
+
+/** Types of function a collection can play. */
+export const collectionMemberTypes = (): FunctionCategory[] => JSON.parse(collection_member_types()) as FunctionCategory[];
 
 /** Beat lengths offered for chaser steps and fades and effect cycles. */
 export const beatChoices = (): number[] => Array.from(beat_choices());

@@ -845,7 +845,7 @@ colors = [ { value = 0, color = "#000000" }, { value = 5, color = "#ff0000" }, {
             level: 1.0,
             position: Some(0),
             paused,
-            step_function: Some(FunctionId(step)),
+            playing: vec![FunctionId(step)],
         };
         let mut rt = RuntimeSnapshot::default();
         rt.state.active = vec![playing(1, false)];

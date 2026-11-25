@@ -20,6 +20,7 @@ export type { Chaser } from "./Chaser";
 export type { ChaserStep } from "./ChaserStep";
 export type { ClientId } from "./ClientId";
 export type { ClientMessage } from "./ClientMessage";
+export type { Collection } from "./Collection";
 export type { Color } from "./Color";
 export type { ColorCalibration } from "./ColorCalibration";
 export type { ColorChoices } from "./ColorChoices";

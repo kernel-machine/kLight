@@ -249,14 +249,21 @@ consoles (grandMA, MagicQ), with a simple interface.
   channel set by hand wins over the older values, and applying a new intention
   or palette releases the channels it writes.
 - `Chaser` — sequence of steps with times, direction, mode. A step references a
-  scene, a movement effect or a matrix effect. An effect runs while its step is
-  current, from the start of its cycle, in the effects layer (§8.2). The step
-  fade is the crossfade of scenes: effects start and stop at once.
+  scene, a movement effect, a matrix effect or a collection. An effect runs while
+  its step is current, from the start of its cycle, in the effects layer (§8.2).
+  The step fade is the crossfade of scenes (also those of a collection step):
+  effects start and stop at once.
 - `CueList` — cues with times, Go/Back/Pause, current cue.
 - `MovementEffect` (EFX) — pan/tilt generators: circle, eight, line, square,
   lissajous; size, speed, phase distributed over the group.
 - `MatrixEffect` — algorithms over a group with a 2D grid: solid color,
   chase, waves, gradients, text (in Rust, in the core).
+- `Collection` — scenes, movement effects and matrix effects played all
+  together. It cannot contain functions that contain others (chasers, cue lists,
+  collections): such a reference is ignored with a warning, and a function listed
+  twice plays once. Its scenes merge **HTP on every channel** (§8.3); effects
+  keep their layer and rules. A collection level scales the intensity of all of
+  them.
 - Effects work in **physical units** (degrees, normalised RGB/HSV) and are
   converted to DMX only at the end, using the fixture definition (16-bit
   fine channels included).
@@ -287,10 +294,10 @@ Types for v1 (parity with QLC+):
 
 **Behaviours** (e.g. SoloFrame exclusivity, cue advance) are core rules, not UI rules.
 
-A button is **lit** while its function runs. It is also lit while a step of a
-running chaser plays its function (paused state if the chaser is paused), both
-on screen and on controller LEDs; pressing it still starts or stops the
-function itself.
+A button is **lit** while its function runs. It is also lit while a running
+chaser step or collection plays its function (paused state if that one is
+paused), both on screen and on controller LEDs; pressing it still starts or
+stops the function itself.
 
 **Design / Show** mode at core level: in Show mode commands that modify the
 structure are rejected. Switching to Design from remote clients requires a PIN.
@@ -335,6 +342,9 @@ operator releases it.
 
 ### 8.3 Merge
 - Intensity: **HTP**. Other attributes: **LTP** with per-layer priority.
+- Exception: among the scenes of one collection **every channel is HTP**, the
+  highest value wins (pan, tilt and wheels included). The result then merges
+  with the other functions by the rules above.
 - Properties to guarantee with property-based tests, for example:
   - HTP never produces a value lower than any of its inputs.
   - Blackout → all intensity channels at 0, always.

@@ -11,6 +11,7 @@
   let {
     title,
     only,
+    exclude,
     single = false,
     initial = null,
     ordering,
@@ -23,6 +24,8 @@
     title: string;
     /** Types of function offered (all when omitted). */
     only?: FunctionCategory[];
+    /** Ids of functions not offered. */
+    exclude?: number[];
     /** Only one function can be chosen. */
     single?: boolean;
     /** Function already chosen when the dialog opens. */
@@ -45,8 +48,10 @@
   let collapsed = $state<Set<string>>(new Set());
 
   const chosen = $derived(new Set(order));
+  const excluded = $derived(new Set(exclude));
+  const offered = (fns: Fn[]) => fns.filter((f) => !excluded.has(f.id));
   const categories = $derived(
-    FUNCTION_CATEGORIES.filter((c) => (!only || only.includes(c.id)) && show.functions.some((f) => f.kind.type === c.id)),
+    FUNCTION_CATEGORIES.filter((c) => (!only || only.includes(c.id)) && offered(show.functions).some((f) => f.kind.type === c.id)),
   );
   const ordered = $derived(order.flatMap((id) => show.functions.filter((f) => f.id === id)));
 
@@ -139,7 +144,7 @@
     onkeydown={(e) => e.key === 'Enter' && toggleOpen(key)}
   >
     <span class="caret">{open ? '▾' : '▸'}</span>
-    {#if !single}{@render groupBox(functionsUnder(show, folder.category, folder.id), folder.name)}{/if}
+    {#if !single}{@render groupBox(offered(functionsUnder(show, folder.category, folder.id)), folder.name)}{/if}
     <span class="icon">📁</span>
     <span class="name">{folder.name}</span>
   </div>
@@ -147,7 +152,7 @@
     {#each foldersIn(show, folder.category, folder.id) as sub (sub.id)}
       {@render folderNode(sub, depth + 1)}
     {/each}
-    {#each functionsIn(show, folder.category, folder.id) as f (f.id)}
+    {#each offered(functionsIn(show, folder.category, folder.id)) as f (f.id)}
       {@render functionRow(f, depth + 1)}
     {/each}
   {/if}
@@ -175,14 +180,14 @@
             onkeydown={(e) => e.key === 'Enter' && toggleOpen(key)}
           >
             <span class="caret">{open ? '▾' : '▸'}</span>
-            {#if !single}{@render groupBox(functionsUnder(show, c.id, null), c.label)}{/if}
+            {#if !single}{@render groupBox(offered(functionsUnder(show, c.id, null)), c.label)}{/if}
             <b class="name">{c.label}</b>
           </div>
           {#if open}
             {#each foldersIn(show, c.id, null) as folder (folder.id)}
               {@render folderNode(folder, 1)}
             {/each}
-            {#each functionsIn(show, c.id, null) as f (f.id)}
+            {#each offered(functionsIn(show, c.id, null)) as f (f.id)}
               {@render functionRow(f, 1)}
             {/each}
           {/if}

@@ -12,7 +12,7 @@ use crate::PersistError;
 type Migration = fn(Value) -> Result<Value, String>;
 
 /// `MIGRATIONS[i]` migrates from version `i` to `i + 1`.
-const MIGRATIONS: &[Migration] = &[v0_to_v1, v1_to_v2];
+const MIGRATIONS: &[Migration] = &[v0_to_v1, v1_to_v2, v2_to_v3];
 
 /// Version 0: pre-release files without `schema_version` and with
 /// `"cues"`-less settings. Adds the version field and default settings.
@@ -32,6 +32,14 @@ fn v0_to_v1(mut v: Value) -> Result<Value, String> {
 fn v1_to_v2(mut v: Value) -> Result<Value, String> {
     let obj = v.as_object_mut().ok_or("show is not a JSON object")?;
     obj.insert("schema_version".into(), Value::from(2));
+    Ok(v)
+}
+
+/// Version 3 adds collections, and effects and collections as chaser steps:
+/// older shows are valid as they are, only the version number changes.
+fn v2_to_v3(mut v: Value) -> Result<Value, String> {
+    let obj = v.as_object_mut().ok_or("show is not a JSON object")?;
+    obj.insert("schema_version".into(), Value::from(3));
     Ok(v)
 }
 

@@ -385,6 +385,12 @@ pub fn chaser_step_types() -> String {
     to_json(&FunctionCategory::CHASER_STEPS)
 }
 
+/// JSON `FunctionCategory[]`: the types of function a collection can play.
+#[wasm_bindgen]
+pub fn collection_member_types() -> String {
+    to_json(&FunctionCategory::COLLECTION_MEMBERS)
+}
+
 /// The beat lengths offered for chaser steps and fades and effect cycles.
 #[wasm_bindgen]
 pub fn beat_choices() -> Vec<f32> {
@@ -430,7 +436,7 @@ mod tests {
     #[test]
     fn widget_light_json_shape() {
         let kind = r#"{"type":"button","action":"Toggle"}"#;
-        let active = r#"[{"id":10,"level":1,"position":0,"paused":false,"step_function":1}]"#;
+        let active = r#"[{"id":10,"level":1,"position":0,"paused":false,"playing":[1]}]"#;
         assert_eq!(
             widget_light_json(kind, Some(1), false, active),
             Ok(WidgetLight::On)
@@ -446,6 +452,14 @@ mod tests {
     fn chaser_step_types_json_shape() {
         assert_eq!(
             chaser_step_types(),
+            r#"["scene","movement_effect","matrix_effect","collection"]"#
+        );
+    }
+
+    #[test]
+    fn collection_member_types_json_shape() {
+        assert_eq!(
+            collection_member_types(),
             r#"["scene","movement_effect","matrix_effect"]"#
         );
     }

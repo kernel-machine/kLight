@@ -7,6 +7,7 @@ export type ActiveFunction = { id: FunctionId, level: number,
  */
 position: number | null, paused: boolean, 
 /**
- * Function played by the current step (chasers).
+ * Functions played inside this one: the current step of a chaser and the
+ * members of a collection (itself running, or as that step).
  */
-step_function: FunctionId | null, };
+playing: Array<FunctionId>, };

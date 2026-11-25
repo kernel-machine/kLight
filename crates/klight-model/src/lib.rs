@@ -27,9 +27,9 @@ pub use fixture_def::{
     HeadDef, ModeDef, Physical, Rgb8,
 };
 pub use function::{
-    ChannelRef, Chaser, ChaserStep, Cue, CueFollow, CueList, Function, FunctionCategory,
-    FunctionFolder, FunctionKind, MatrixAlgorithm, MatrixEffect, MovementEffect, Scene, SceneValue,
-    Spread, Target, TimeValue, Timing, ValueSource,
+    ChannelRef, Chaser, ChaserStep, Collection, Cue, CueFollow, CueList, Function,
+    FunctionCategory, FunctionFolder, FunctionKind, MatrixAlgorithm, MatrixEffect, MovementEffect,
+    Scene, SceneValue, Spread, Target, TimeValue, Timing, ValueSource,
 };
 pub use ids::*;
 pub use palette::{Palette, PaletteKind};

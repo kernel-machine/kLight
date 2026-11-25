@@ -1,24 +1,25 @@
 <script lang="ts">
-  // Functions: scenes, chasers, cue lists, effects, palettes.
+  // Functions: scenes, chasers, cue lists, effects, collections, palettes.
   import { app, run } from '../lib/app.svelte';
-  import { chaserStepTypes, colorSequence, colorToHex, describeTarget, describeValue, formatTime, hexToColor, maxSequenceColors, nextId, parseTime } from '../lib/show';
+  import { chaserStepTypes, collectionMemberTypes, colorSequence, colorToHex, describeTarget, describeValue, formatTime, hexToColor, maxSequenceColors, nextId, parseTime } from '../lib/show';
   import type { Cue, Function as Fn, FunctionKind, SceneValue, TimeValue } from '../lib/protocol';
   import SceneEditor from '../components/SceneEditor.svelte';
   import MovementEditor from '../components/MovementEditor.svelte';
   import MatrixEditor from '../components/MatrixEditor.svelte';
   import FunctionTree from '../components/FunctionTree.svelte';
   import ChaserEditor from '../components/ChaserEditor.svelte';
+  import CollectionEditor from '../components/CollectionEditor.svelte';
 
   const show = $derived(app.s.show!);
   const active = $derived(new Map((app.s.runtime?.state.active ?? []).map((a) => [a.id, a])));
   const programmer = $derived(app.s.runtime?.state.programmer ?? []);
   let selectedId = $state<number | null>(null);
   const selected = $derived(show.functions.find((f) => f.id === selectedId) ?? null);
-  /** Chaser whose "add steps" dialog is open. */
+  /** Chaser or collection whose "add" dialog is open. */
   let picking = $state<number | null>(null);
 
   function kindLabel(k: FunctionKind['type']) {
-    return { scene: 'Scene', chaser: 'Chaser', cue_list: 'Cue list', movement_effect: 'Movement', matrix_effect: 'Matrix' }[k];
+    return { scene: 'Scene', chaser: 'Chaser', cue_list: 'Cue list', movement_effect: 'Movement', matrix_effect: 'Matrix', collection: 'Collection' }[k];
   }
 
   function save(f: Fn) {
@@ -41,11 +42,13 @@
       cue_list: { type: 'cue_list', cues: [], move_in_black: true },
       movement_effect: { type: 'movement_effect', group: firstGroup, shape: { type: 'circle' }, center_pan: 0, center_tilt: 0, width: 60, height: 30, period: { beats: 4 }, phase_spread: 0, direction: 'Forward' },
       matrix_effect: { type: 'matrix_effect', group: firstGroup, algorithm: { type: 'chase', color: hexToColor('#ff0000'), background: hexToColor('#000000') }, period: { beats: 2 }, direction: 'Forward' },
+      collection: { type: 'collection', functions: [] },
     };
     if (!(await save({ id, name: `${kindLabel(type)} ${id}`, kind: kinds[type], folder }))) return;
     selectedId = id;
-    // A new chaser starts by asking for its steps.
-    if (type === 'chaser' && show.functions.some((f) => chaserStepTypes().includes(f.kind.type))) picking = id;
+    // A new chaser or collection starts by asking for what it plays.
+    const inside = type === 'chaser' ? chaserStepTypes() : type === 'collection' ? collectionMemberTypes() : null;
+    if (inside && show.functions.some((f) => inside.includes(f.kind.type))) picking = id;
   }
 
   const programmerValues = (): SceneValue[] => programmer.map((e) => ({ target: e.target, value: { type: 'explicit', value: e.value } }));
@@ -162,6 +165,8 @@
         <SceneEditor {f} scene={k} />
       {:else if f.kind.type === 'chaser'}
         <ChaserEditor {f} chaser={f.kind} bind:picking />
+      {:else if f.kind.type === 'collection'}
+        <CollectionEditor {f} collection={f.kind} bind:picking />
       {:else if f.kind.type === 'cue_list'}
         {@const k = f.kind}
         {@const pos = active.get(f.id)?.position}

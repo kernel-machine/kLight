@@ -11,9 +11,10 @@ use klight_model::patch::ColorCalibration;
 use klight_model::UNIVERSE_SIZE;
 use klight_model::{
     attributes::{kind_of_attribute, AttributeKind},
-    validate, Attribute, AttributeValue, ChannelRef, Chaser, CueFollow, CueList, FixtureId,
-    FunctionId, FunctionKind, MatrixAlgorithm, MovementEffect, Orientation, Scene, SceneValue,
-    Show, Spread, Target, TimeValue, Timing, UniverseId, ValueSource,
+    validate, Attribute, AttributeValue, ChannelRef, Chaser, Collection, CueFollow, CueList,
+    FixtureId, FunctionCategory, FunctionId, FunctionKind, MatrixAlgorithm, MovementEffect,
+    Orientation, Scene, SceneValue, Show, Spread, Target, TimeValue, Timing, UniverseId,
+    ValueSource,
 };
 
 /// Marker for "no DMX address" (virtual channels).
@@ -129,6 +130,19 @@ pub enum StepContent {
     Scene(Arc<CompiledScene>),
     Movement(Arc<CompiledMovement>),
     Matrix(Arc<CompiledMatrix>),
+    /// Its scenes take the step's crossfade as their timing.
+    Collection(Arc<CompiledCollection>),
+}
+
+impl StepContent {
+    /// The scenes the step plays.
+    pub fn scenes(&self) -> &[Arc<CompiledScene>] {
+        match self {
+            StepContent::Scene(s) => std::slice::from_ref(s),
+            StepContent::Collection(c) => &c.scenes,
+            StepContent::Movement(_) | StepContent::Matrix(_) => &[],
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -201,6 +215,16 @@ pub struct CompiledMatrix {
     pub direction: Direction,
 }
 
+/// What a collection plays, all together.
+#[derive(Debug, Clone, Default)]
+pub struct CompiledCollection {
+    /// The functions played, each once.
+    pub members: Vec<FunctionId>,
+    pub scenes: Vec<Arc<CompiledScene>>,
+    pub movements: Vec<Arc<CompiledMovement>>,
+    pub matrices: Vec<Arc<CompiledMatrix>>,
+}
+
 #[derive(Debug, Clone)]
 pub enum CompiledFunction {
     Scene(Arc<CompiledScene>),
@@ -208,6 +232,7 @@ pub enum CompiledFunction {
     CueList(Arc<CompiledCueList>),
     Movement(Arc<CompiledMovement>),
     Matrix(Arc<CompiledMatrix>),
+    Collection(Arc<CompiledCollection>),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -380,12 +405,15 @@ impl CompiledShow {
             ));
         }
 
-        // Chasers last: their effect steps reuse the compiled effects.
-        let (chasers, others): (Vec<_>, Vec<_>) = show
-            .functions
-            .iter()
-            .partition(|f| matches!(f.kind, FunctionKind::Chaser(_)));
-        for func in others.into_iter().chain(chasers) {
+        // Containers after what they contain, which they reuse: collections
+        // after scenes and effects, chasers after collections.
+        let mut functions: Vec<_> = show.functions.iter().collect();
+        functions.sort_by_key(|f| match f.kind.category() {
+            FunctionCategory::Chaser => 2,
+            FunctionCategory::Collection => 1,
+            _ => 0,
+        });
+        for func in functions {
             match compile_function(show, &mut c, &func.kind) {
                 Some(cf) => {
                     c.functions.insert(func.id, cf);
@@ -680,7 +708,7 @@ fn compile_function(
 ) -> Option<CompiledFunction> {
     Some(match kind {
         FunctionKind::Scene(s) => CompiledFunction::Scene(Arc::new(c.compile_scene(show, s))),
-        FunctionKind::Chaser(ch) => CompiledFunction::Chaser(Arc::new(compile_chaser(show, c, ch))),
+        FunctionKind::Chaser(ch) => CompiledFunction::Chaser(Arc::new(compile_chaser(c, ch))),
         FunctionKind::CueList(cl) => {
             CompiledFunction::CueList(Arc::new(compile_cue_list(show, c, cl)))
         }
@@ -690,30 +718,71 @@ fn compile_function(
         FunctionKind::MatrixEffect(m) => {
             CompiledFunction::Matrix(Arc::new(compile_matrix(show, c, m)?))
         }
+        FunctionKind::Collection(col) => {
+            CompiledFunction::Collection(Arc::new(compile_collection(c, col)))
+        }
     })
 }
 
-fn compile_chaser(show: &Show, c: &mut CompiledShow, ch: &Chaser) -> CompiledChaser {
+fn compile_collection(c: &mut CompiledShow, col: &Collection) -> CompiledCollection {
+    let mut out = CompiledCollection::default();
+    for &id in &col.functions {
+        // Listed twice, it plays once.
+        if out.members.contains(&id) {
+            continue;
+        }
+        match c.functions.get(&id) {
+            Some(CompiledFunction::Scene(s)) => out.scenes.push(s.clone()),
+            Some(CompiledFunction::Movement(m)) => out.movements.push(m.clone()),
+            Some(CompiledFunction::Matrix(m)) => out.matrices.push(m.clone()),
+            Some(
+                CompiledFunction::Chaser(_)
+                | CompiledFunction::CueList(_)
+                | CompiledFunction::Collection(_),
+            )
+            | None => {
+                c.warn(format!(
+                    "collection references {} which a collection cannot play",
+                    id.0
+                ));
+                continue;
+            }
+        }
+        out.members.push(id);
+    }
+    out
+}
+
+/// A scene as a chaser step plays it: the step's crossfade replaces the
+/// scene's own times.
+fn step_scene(scene: &CompiledScene, fade: TimeValue) -> Arc<CompiledScene> {
+    Arc::new(CompiledScene {
+        entries: scene.entries.clone(),
+        timing: [Timing {
+            delay: TimeValue::ZERO,
+            fade_in: fade,
+            fade_out: fade,
+        }; 4],
+        spread: Spread::None,
+    })
+}
+
+fn compile_chaser(c: &mut CompiledShow, ch: &Chaser) -> CompiledChaser {
     let mut steps = Vec::new();
     for (index, step) in ch.steps.iter().enumerate() {
         let fade = step.fade.unwrap_or(ch.fade);
-        let content = match show.function(step.scene).map(|f| &f.kind) {
-            Some(FunctionKind::Scene(s)) => {
-                let mut scene = c.compile_scene(show, s);
-                // Step crossfade replaces the scene's own fade times.
-                scene.timing = [Timing {
-                    delay: TimeValue::ZERO,
-                    fade_in: fade,
-                    fade_out: fade,
-                }; 4];
-                scene.spread = Spread::None;
-                Some(StepContent::Scene(Arc::new(scene)))
+        let content = match c.functions.get(&step.scene) {
+            Some(CompiledFunction::Scene(s)) => Some(StepContent::Scene(step_scene(s, fade))),
+            Some(CompiledFunction::Movement(m)) => Some(StepContent::Movement(m.clone())),
+            Some(CompiledFunction::Matrix(m)) => Some(StepContent::Matrix(m.clone())),
+            Some(CompiledFunction::Collection(col)) => {
+                let mut col = (**col).clone();
+                for s in &mut col.scenes {
+                    *s = step_scene(s, fade);
+                }
+                Some(StepContent::Collection(Arc::new(col)))
             }
-            _ => match c.functions.get(&step.scene) {
-                Some(CompiledFunction::Movement(m)) => Some(StepContent::Movement(m.clone())),
-                Some(CompiledFunction::Matrix(m)) => Some(StepContent::Matrix(m.clone())),
-                _ => None,
-            },
+            Some(CompiledFunction::Chaser(_) | CompiledFunction::CueList(_)) | None => None,
         };
         match content {
             Some(content) => steps.push(CompiledStep {
@@ -724,7 +793,7 @@ fn compile_chaser(show: &Show, c: &mut CompiledShow, ch: &Chaser) -> CompiledCha
                 fade,
             }),
             None => c.warn(format!(
-                "chaser step references {} which is not a playable scene or effect",
+                "chaser step references {} which a chaser cannot play",
                 step.scene.0
             )),
         }

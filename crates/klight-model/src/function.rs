@@ -311,6 +311,16 @@ pub struct MatrixEffect {
     pub direction: Direction,
 }
 
+/// Functions played all together, in parallel, of the types in
+/// [`FunctionCategory::COLLECTION_MEMBERS`]. Where several scenes of a
+/// collection drive the same channel, the highest value wins (HTP), whatever
+/// the channel.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct Collection {
+    pub functions: Vec<FunctionId>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -320,6 +330,7 @@ pub enum FunctionKind {
     CueList(CueList),
     MovementEffect(MovementEffect),
     MatrixEffect(MatrixEffect),
+    Collection(Collection),
 }
 
 /// Type of a function, used to list functions by type and to scope folders.
@@ -332,11 +343,21 @@ pub enum FunctionCategory {
     CueList,
     MovementEffect,
     MatrixEffect,
+    Collection,
 }
 
 impl FunctionCategory {
     /// Types of function a chaser step can play.
-    pub const CHASER_STEPS: [FunctionCategory; 3] = [
+    pub const CHASER_STEPS: [FunctionCategory; 4] = [
+        FunctionCategory::Scene,
+        FunctionCategory::MovementEffect,
+        FunctionCategory::MatrixEffect,
+        FunctionCategory::Collection,
+    ];
+
+    /// Types of function a collection can play: the ones that contain no
+    /// other function.
+    pub const COLLECTION_MEMBERS: [FunctionCategory; 3] = [
         FunctionCategory::Scene,
         FunctionCategory::MovementEffect,
         FunctionCategory::MatrixEffect,
@@ -351,6 +372,7 @@ impl FunctionKind {
             FunctionKind::CueList(_) => FunctionCategory::CueList,
             FunctionKind::MovementEffect(_) => FunctionCategory::MovementEffect,
             FunctionKind::MatrixEffect(_) => FunctionCategory::MatrixEffect,
+            FunctionKind::Collection(_) => FunctionCategory::Collection,
         }
     }
 }

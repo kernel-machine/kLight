@@ -197,7 +197,44 @@ fn steady_state_tick_does_not_allocate() {
             },
         },
     );
-    for id in [1, 2, 3, 6, 7] {
+    // A collection of scenes and effects, alone and as a chaser step.
+    ok(
+        &mut e,
+        0,
+        Command::SetFunction {
+            function: Function {
+                id: FunctionId(8),
+                folder: None,
+                name: "collection".into(),
+                kind: FunctionKind::Collection(Collection {
+                    functions: [1, 4, 2, 3].map(FunctionId).to_vec(),
+                }),
+            },
+        },
+    );
+    ok(
+        &mut e,
+        0,
+        Command::SetFunction {
+            function: Function {
+                id: FunctionId(11),
+                folder: None,
+                name: "collection chase".into(),
+                kind: FunctionKind::Chaser(Chaser {
+                    steps: vec![ChaserStep {
+                        scene: FunctionId(8),
+                        hold: None,
+                        fade: None,
+                    }],
+                    hold: TimeValue::Ms(100_000),
+                    fade: TimeValue::ZERO,
+                    direction: Direction::Forward,
+                    run_mode: RunMode::Loop,
+                }),
+            },
+        },
+    );
+    for id in [1, 2, 3, 6, 7, 8, 11] {
         ok(&mut e, 0, Command::StartFunction { id: FunctionId(id) });
     }
     ok(

@@ -1,4 +1,4 @@
-//! Layers and playback of scenes, chasers and cue lists.
+//! Layers and playback of functions.
 
 use std::sync::Arc;
 
@@ -6,8 +6,8 @@ use klight_model::function::{Direction, RunMode};
 use klight_model::{CueFollow, FunctionId, TimeValue};
 
 use crate::compile::{
-    CompiledChaser, CompiledCueList, CompiledMatrix, CompiledMovement, CompiledScene,
-    LogicalChannel, Merge, StepContent, NO_CHANNEL,
+    CompiledChaser, CompiledCollection, CompiledCueList, CompiledMatrix, CompiledMovement,
+    CompiledScene, LogicalChannel, Merge, StepContent, NO_CHANNEL,
 };
 use crate::music::{beats_to_fixed, MusicClock};
 
@@ -47,6 +47,15 @@ impl Layer {
         }
         *set = true;
     }
+
+    /// Writes another layer on top, each channel with its merge rule.
+    pub fn write_layer(&mut self, other: &Layer, channels: &[LogicalChannel]) {
+        for (ch, lc) in channels.iter().enumerate() {
+            if let Some(v) = other.get(ch) {
+                self.write(ch, lc.merge, v);
+            }
+        }
+    }
 }
 
 /// Linear interpolation in integer arithmetic: exact at both ends and
@@ -75,6 +84,9 @@ pub struct SceneInstance {
     pub scene: Option<Arc<CompiledScene>>,
     pub started_us: u64,
     pub released_at: Option<u64>,
+    /// Scenes of one collection started together share this: among them every
+    /// channel is HTP.
+    together: Option<u64>,
     start: Vec<u16>,
     released: Vec<u16>,
     delay_us: Vec<u64>,
@@ -172,6 +184,18 @@ impl SceneInstance {
     }
 
     pub fn render(&self, now_us: u64, level: u16, channels: &[LogicalChannel], layer: &mut Layer) {
+        self.render_merging(now_us, level, channels, layer, None);
+    }
+
+    /// [`Self::render`], merging by `forced` instead of each channel's rule.
+    fn render_merging(
+        &self,
+        now_us: u64,
+        level: u16,
+        channels: &[LogicalChannel],
+        layer: &mut Layer,
+        forced: Option<Merge>,
+    ) {
         let Some(scene) = self.scene.as_ref() else {
             return;
         };
@@ -184,7 +208,7 @@ impl SceneInstance {
                 } else {
                     v
                 };
-                layer.write(ch, lc.merge, v);
+                layer.write(ch, forced.unwrap_or(lc.merge), v);
             }
         }
     }
@@ -255,6 +279,7 @@ pub enum PlaybackKind {
     CueList(CueState),
     Movement(Arc<CompiledMovement>),
     Matrix(Arc<CompiledMatrix>),
+    Collection(Arc<CompiledCollection>),
 }
 
 #[derive(Debug, Clone)]
@@ -269,6 +294,8 @@ pub struct Playback {
     pub started_us: u64,
     pub started_beat: u64,
     pub paused_since: Option<u64>,
+    /// Times scenes of a collection were started together.
+    pub groups: u64,
 }
 
 /// Context handed to playback updates.
@@ -293,11 +320,20 @@ impl Playback {
         }
     }
 
-    /// Function played by the current step of a chaser.
-    pub fn step_function(&self) -> Option<FunctionId> {
+    /// Adds the functions played inside this one: the current step of a
+    /// chaser, the members of a collection, itself or as a step.
+    pub fn playing(&self, out: &mut Vec<FunctionId>) {
         match &self.kind {
-            PlaybackKind::Chaser(c) => c.chaser.steps.get(c.step).map(|s| s.source),
-            _ => None,
+            PlaybackKind::Chaser(c) => {
+                if let Some(step) = c.chaser.steps.get(c.step) {
+                    out.push(step.source);
+                    if let StepContent::Collection(c) = &step.content {
+                        out.extend_from_slice(&c.members);
+                    }
+                }
+            }
+            PlaybackKind::Collection(c) => out.extend_from_slice(&c.members),
+            _ => {}
         }
     }
 
@@ -309,7 +345,56 @@ impl Playback {
     fn spawn(&mut self, pool: &mut Vec<SceneInstance>, scene: Arc<CompiledScene>, ctx: &Ctx<'_>) {
         let mut inst = pool.pop().unwrap_or_default();
         inst.begin(scene, ctx.now_us, ctx.music.bpm(), ctx.base, ctx.channels);
+        inst.together = None;
         self.instances.push(inst);
+    }
+
+    /// Starts the scenes of a collection, merged HTP among themselves.
+    fn spawn_together(
+        &mut self,
+        pool: &mut Vec<SceneInstance>,
+        scenes: &[Arc<CompiledScene>],
+        ctx: &Ctx<'_>,
+    ) {
+        self.groups += 1;
+        for scene in scenes {
+            self.spawn(pool, scene.clone(), ctx);
+            if let Some(inst) = self.instances.last_mut() {
+                inst.together = Some(self.groups);
+            }
+        }
+    }
+
+    /// Starts what a chaser step plays. Effects need nothing: they are
+    /// rendered from the current step.
+    fn enter_step(&mut self, pool: &mut Vec<SceneInstance>, content: &StepContent, ctx: &Ctx<'_>) {
+        match content {
+            StepContent::Scene(s) => self.spawn(pool, s.clone(), ctx),
+            StepContent::Collection(c) => self.spawn_together(pool, &c.scenes, ctx),
+            StepContent::Movement(_) | StepContent::Matrix(_) => {}
+        }
+    }
+
+    /// Replaces what is playing with `content`, without fading it in (show
+    /// edited live, or restored).
+    pub fn show_now(
+        &mut self,
+        pool: &mut Vec<SceneInstance>,
+        content: &StepContent,
+        ctx: &Ctx<'_>,
+    ) {
+        pool.append(&mut self.instances);
+        self.enter_step(pool, content, ctx);
+        self.snap(ctx);
+    }
+
+    /// Skips the fades of everything playing.
+    pub fn snap(&mut self, ctx: &Ctx<'_>) {
+        for inst in &mut self.instances {
+            if let Some(scene) = inst.scene.clone() {
+                inst.rebind(scene, ctx.now_us, ctx.music.bpm(), ctx.base, ctx.channels);
+            }
+        }
     }
 
     fn release_all(&mut self, ctx: &Ctx<'_>, fade_out: Option<u64>) {
@@ -334,17 +419,18 @@ impl Playback {
                 state.forward = state.chaser.direction == Direction::Forward;
                 state.step_start_us = ctx.now_us;
                 state.step_start_beat = ctx.music.beat_at(ctx.now_us);
-                if let Some(StepContent::Scene(scene)) =
-                    state.chaser.steps.get(first).map(|s| &s.content)
-                {
-                    let scene = scene.clone();
-                    self.spawn(pool, scene, ctx);
+                if let Some(content) = state.chaser.steps.get(first).map(|s| s.content.clone()) {
+                    self.enter_step(pool, &content, ctx);
                 }
             }
             PlaybackKind::CueList(_) => {
                 self.cue_go(pool, ctx);
             }
             PlaybackKind::Movement(_) | PlaybackKind::Matrix(_) => {}
+            PlaybackKind::Collection(c) => {
+                let c = c.clone();
+                self.spawn_together(pool, &c.scenes, ctx);
+            }
         }
     }
 
@@ -352,10 +438,11 @@ impl Playback {
     pub fn stop(&mut self, ctx: &Ctx<'_>) -> bool {
         self.stopping = true;
         self.release_all(ctx, None);
+        // Effects have nothing to fade out.
         matches!(
             self.kind,
             PlaybackKind::Movement(_) | PlaybackKind::Matrix(_)
-        )
+        ) || (matches!(self.kind, PlaybackKind::Collection(_)) && self.instances.is_empty())
     }
 
     pub fn cue_go(&mut self, pool: &mut Vec<SceneInstance>, ctx: &Ctx<'_>) {
@@ -558,17 +645,10 @@ impl Playback {
                 let Some(next_step) = state.chaser.steps.get(nx) else {
                     return true;
                 };
-                // Effect steps have no instance: they are rendered from the
-                // current step, so they start and stop with it.
-                let scene = match &next_step.content {
-                    StepContent::Scene(s) => Some(s.clone()),
-                    StepContent::Movement(_) | StepContent::Matrix(_) => None,
-                };
+                let content = next_step.content.clone();
                 let fade = next_step.fade.to_micros(ctx.music.bpm());
                 self.release_all(ctx, Some(fade));
-                if let Some(scene) = scene {
-                    self.spawn(pool, scene, ctx);
-                }
+                self.enter_step(pool, &content, ctx);
             }
             None => {
                 self.stopping = true;
@@ -578,11 +658,30 @@ impl Playback {
         true
     }
 
-    /// Renders scene instances into the base layer.
-    pub fn render_base(&self, now_us: u64, channels: &[LogicalChannel], layer: &mut Layer) {
+    /// Renders scene instances into the base layer. `mix` is a work layer to
+    /// merge the scenes of a collection.
+    pub fn render_base(
+        &self,
+        now_us: u64,
+        channels: &[LogicalChannel],
+        layer: &mut Layer,
+        mix: &mut Layer,
+    ) {
         let t = self.render_time(now_us);
-        for inst in &self.instances {
-            inst.render(t, self.level, channels, layer);
+        let mut insts = self.instances.iter().peekable();
+        while let Some(inst) = insts.next() {
+            let Some(group) = inst.together else {
+                inst.render(t, self.level, channels, layer);
+                continue;
+            };
+            // The highest value of the group, then merged like any scene.
+            mix.clear();
+            let mut next = Some(inst);
+            while let Some(i) = next {
+                i.render_merging(t, self.level, channels, mix, Some(Merge::Htp));
+                next = insts.next_if(|i| i.together == Some(group));
+            }
+            layer.write_layer(mix, channels);
         }
     }
 
