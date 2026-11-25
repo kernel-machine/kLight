@@ -4,16 +4,18 @@
 //
 // Call `initCore()` once before using anything else.
 
-import init, { initSync, ShowView, MovementView, MatrixView, linear_to_hex, hex_to_linear, max_sequence_colors, color_sequence_json, beat_flash_bits } from './wasm/klight_wasm.js';
+import init, { initSync, ShowView, MovementView, MatrixView, linear_to_hex, hex_to_linear, set_scene_channel, max_sequence_colors, color_sequence_json, beat_flash_bits } from './wasm/klight_wasm.js';
 import type {
   ChannelInfo,
   ChannelPreset,
+  ChannelRef,
   ColorChoices,
   ValueSupport,
   Color,
   FixtureGroup,
   FixtureInfo,
-  FixturePreview,
+  SceneFixtureChannels,
+  SceneValue,
   GroupLayout,
   MatrixEffect,
   MovementEffect,
@@ -37,14 +39,14 @@ let cached: {
   view: ShowView;
   channels: Map<number, Array<ChannelInfo | null>>;
   infos: Map<number, FixtureInfo>;
-  previews: Map<number, FixturePreview[]>;
+  sceneChannels: Map<number, SceneFixtureChannels[]>;
   presets: Map<string, ChannelPreset[]>;
 } | null = null;
 
 function view(show: Show) {
   if (cached?.show !== show) {
     cached?.view.free();
-    cached = { show, view: new ShowView(JSON.stringify(show)), channels: new Map(), infos: new Map(), previews: new Map(), presets: new Map() };
+    cached = { show, view: new ShowView(JSON.stringify(show)), channels: new Map(), infos: new Map(), sceneChannels: new Map(), presets: new Map() };
   }
   return cached;
 }
@@ -118,16 +120,29 @@ export function colorChoices(show: Show, fixtureIds: number[]): ColorChoices {
   return JSON.parse(view(show).view.color_choices(Uint32Array.from(fixtureIds))) as ColorChoices;
 }
 
-/** What a scene sets on each fixture and channel (engine's own compilation). */
-export function scenePreview(show: Show, functionId: number): FixturePreview[] {
+/** All the channels of the fixtures a scene drives (engine's own compilation). */
+export function sceneChannels(show: Show, functionId: number): SceneFixtureChannels[] {
   const c = view(show);
-  let p = c.previews.get(functionId);
+  let p = c.sceneChannels.get(functionId);
   if (!p) {
-    const json = c.view.scene_preview(functionId);
-    p = json ? (JSON.parse(json) as FixturePreview[]) : [];
-    c.previews.set(functionId, p);
+    const json = c.view.scene_channels(functionId);
+    p = json ? (JSON.parse(json) as SceneFixtureChannels[]) : [];
+    c.sceneChannels.set(functionId, p);
   }
   return p;
+}
+
+/**
+ * Scene `values` after adding `incoming`: values in the same slot are replaced
+ * and channels set by hand that `incoming` writes are released.
+ */
+export function addSceneValues(show: Show, values: SceneValue[], incoming: SceneValue[]): SceneValue[] {
+  return JSON.parse(view(show).view.add_scene_values(JSON.stringify(values), JSON.stringify(incoming))) as SceneValue[];
+}
+
+/** Scene `values` with one channel of a fixture set by hand, or released (`null`). */
+export function setSceneChannel(values: SceneValue[], fixture: number, channel: ChannelRef, value: number | null): SceneValue[] {
+  return JSON.parse(set_scene_channel(JSON.stringify(values), fixture, JSON.stringify(channel), value)) as SceneValue[];
 }
 
 /** Color a function shows (first color its scene sets, palettes resolved as the engine does), or null. */

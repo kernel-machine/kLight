@@ -237,6 +237,12 @@ consoles (grandMA, MagicQ), with a simple interface.
 - `Scene` — per group or fixture: intentions, palette references or explicit
   values; fade in/out, delays and fades **distributed over the group** (e.g.
   heads lighting up one after the other), different times per attribute.
+  Single channels of a fixture can also be **set by hand** (one DMX byte, or a
+  virtual dimmer): they are named by attribute, not by address, so they stay
+  valid when the fixture model changes (a channel the new model lacks is
+  ignored with a warning). Values apply in order: a channel set by hand wins
+  over the older values, and applying a new intention or palette releases the
+  channels it writes.
 - `Chaser` — sequence of steps (scene references) with times, direction, mode.
 - `CueList` — cues with times, Go/Back/Pause, current cue.
 - `MovementEffect` (EFX) — pan/tilt generators: circle, eight, line, square,
@@ -474,6 +480,10 @@ slots, gobos, shutter modes) and jump to the value the engine uses for them.
 Known limit: the editor decides per fixture while the engine decides per head
 (a fixture with an RGB head and a wheel head counts as mixing), and it ignores
 color calibration (only offered for fixtures that mix colors).
+Below the values, one horizontally scrolling row of faders shows every channel
+of the fixtures the scene drives (core `scene_channels`), as in the Simple Desk;
+moving one sets that channel by hand when the fader is let go (one undo step
+per move), and × releases it.
 
 Purely local preferences (zoom, theme, current page) stay in the client.
 

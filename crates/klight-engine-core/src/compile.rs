@@ -5,14 +5,15 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use klight_fixtures::{Converter, FixtureProfile, Resolved};
+use klight_fixtures::{profile::to16, Converter, FixtureProfile, Resolved};
 use klight_model::function::{Direction, RunMode};
 use klight_model::patch::ColorCalibration;
 use klight_model::UNIVERSE_SIZE;
 use klight_model::{
-    attributes::AttributeKind, validate, Attribute, AttributeValue, Chaser, CueFollow, CueList,
-    FixtureId, FunctionId, FunctionKind, MatrixAlgorithm, MovementEffect, Orientation, Scene,
-    SceneValue, Show, Spread, Target, TimeValue, Timing, UniverseId, ValueSource,
+    attributes::{kind_of_attribute, AttributeKind},
+    validate, Attribute, AttributeValue, ChannelRef, Chaser, CueFollow, CueList, FixtureId,
+    FunctionId, FunctionKind, MatrixAlgorithm, MovementEffect, Orientation, Scene, SceneValue,
+    Show, Spread, Target, TimeValue, Timing, UniverseId, ValueSource,
 };
 
 /// Marker for "no DMX address" (virtual channels).
@@ -77,6 +78,11 @@ pub struct CompiledFixture {
     pub calibration: Option<ColorCalibration>,
 }
 
+/// Bit of the coarse byte in [`SceneEntry::set`] and [`SceneEntry::manual`].
+pub const COARSE_BYTE: u8 = 1;
+/// Bit of the fine byte in [`SceneEntry::set`] and [`SceneEntry::manual`].
+pub const FINE_BYTE: u8 = 2;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SceneEntry {
     pub channel: u32,
@@ -87,6 +93,10 @@ pub struct SceneEntry {
     pub group_len: u16,
     /// Extra delay for this entry (move in black presets).
     pub delay: TimeValue,
+    /// Bytes the scene sets, by intention or by hand.
+    pub set: u8,
+    /// Bytes set by hand.
+    pub manual: u8,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -449,8 +459,103 @@ impl CompiledShow {
         Ok(())
     }
 
-    /// Resolves scene-like values (explicit or palette references).
-    pub fn resolve_values(&mut self, show: &Show, values: &[SceneValue]) -> Vec<SceneEntry> {
+    /// Logical channel of a fixture (by index into `fixtures`) that `channel`
+    /// names, and whether it names its fine byte.
+    pub fn locate_channel(&self, fixture: u32, channel: ChannelRef) -> Option<(u32, bool)> {
+        let f = self.fixtures.get(fixture as usize)?;
+        match channel {
+            ChannelRef::Dmx {
+                attribute,
+                index,
+                fine,
+            } => {
+                let (i, slot) = f
+                    .profile
+                    .slots
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, s)| s.attribute == attribute)
+                    .nth(usize::from(index))?;
+                if fine && slot.fine.is_none() {
+                    return None;
+                }
+                let channel = f.first_channel.saturating_add(u32::try_from(i).ok()?);
+                Some((channel, fine))
+            }
+            ChannelRef::VirtualDimmer { head } => {
+                let vdim = f.heads.get(usize::from(head))?.vdim;
+                (vdim != NO_CHANNEL).then_some((vdim, false))
+            }
+        }
+    }
+
+    /// Applies one channel set by hand on top of the entries resolved so far.
+    fn resolve_channel(
+        &self,
+        target: &Target,
+        channel: ChannelRef,
+        value: u8,
+        entries: &mut Vec<SceneEntry>,
+        index: &mut BTreeMap<u32, usize>,
+    ) -> Result<(), String> {
+        let Target::Fixture { id } = *target else {
+            return Err("channel values need a single fixture as target".into());
+        };
+        let fixture = *self
+            .fixture_index
+            .get(&id)
+            .ok_or_else(|| format!("target {target:?} resolves to no fixture"))?;
+        let (logical, fine) = self
+            .locate_channel(fixture, channel)
+            .ok_or_else(|| format!("fixture {}: no channel {channel:?}", id.0))?;
+        let lc = self
+            .channels
+            .get(logical as usize)
+            .ok_or_else(|| "unknown channel".to_owned())?;
+        if lc.attribute == Attribute::Maintenance {
+            return Err("service channels cannot be stored in scenes".into());
+        }
+        let byte = if fine { FINE_BYTE } else { COARSE_BYTE };
+        let existing = index.get(&logical).and_then(|&i| entries.get_mut(i));
+        let current = existing.as_ref().map_or(lc.default, |e| e.value);
+        let value = if lc.fine == NO_ADDR {
+            to16(value)
+        } else {
+            let [hi, lo] = current.to_be_bytes();
+            u16::from_be_bytes(if fine { [hi, value] } else { [value, lo] })
+        };
+        match existing {
+            // Order and group are kept: the spread timing does not change.
+            Some(e) => {
+                e.value = value;
+                e.set |= byte;
+                e.manual |= byte;
+            }
+            None => {
+                index.insert(logical, entries.len());
+                entries.push(SceneEntry {
+                    channel: logical,
+                    value,
+                    kind: kind_of_attribute(lc.attribute),
+                    order: 0,
+                    group_len: 1,
+                    delay: TimeValue::ZERO,
+                    set: byte,
+                    manual: byte,
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// Resolves scene-like values (explicit, palette references or channels
+    /// set by hand), in order: the last one wins on every channel. Returns the
+    /// entries and the warnings.
+    pub fn resolve_values(
+        &self,
+        show: &Show,
+        values: &[SceneValue],
+    ) -> (Vec<SceneEntry>, Vec<String>) {
         let mut entries: Vec<SceneEntry> = Vec::new();
         let mut index: BTreeMap<u32, usize> = BTreeMap::new();
         let mut scratch = Vec::new();
@@ -458,6 +563,14 @@ impl CompiledShow {
         let mut warnings = Vec::new();
 
         for sv in values {
+            if let ValueSource::Channel { channel, value } = sv.value {
+                if let Err(w) =
+                    self.resolve_channel(&sv.target, channel, value, &mut entries, &mut index)
+                {
+                    warnings.push(w);
+                }
+                continue;
+            }
             let heads = self.expand_target(show, &sv.target);
             if heads.is_empty() {
                 warnings.push(format!("target {:?} resolves to no fixture", sv.target));
@@ -480,6 +593,8 @@ impl CompiledShow {
                             Vec::new()
                         }
                     },
+                    // Handled above.
+                    ValueSource::Channel { .. } => Vec::new(),
                 };
                 for value in resolved_values {
                     if value.targets_service_channel() {
@@ -502,6 +617,8 @@ impl CompiledShow {
                             order,
                             group_len: len,
                             delay: TimeValue::ZERO,
+                            set: COARSE_BYTE | FINE_BYTE,
+                            manual: 0,
                         };
                         match index.get(&channel).and_then(|&i| entries.get_mut(i)) {
                             Some(existing) => *existing = e,
@@ -516,14 +633,14 @@ impl CompiledShow {
         }
         warnings.sort();
         warnings.dedup();
-        for w in warnings {
-            self.warn(w);
-        }
-        entries
+        (entries, warnings)
     }
 
     pub fn compile_scene(&mut self, show: &Show, scene: &Scene) -> CompiledScene {
-        let entries = self.resolve_values(show, &scene.values);
+        let (entries, warnings) = self.resolve_values(show, &scene.values);
+        for w in warnings {
+            self.warn(w);
+        }
         CompiledScene {
             entries,
             timing: [

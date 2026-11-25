@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::attributes::{AttributeValue, Color};
 use crate::fixture_def::{Attribute, CapabilityKind, ChannelByte};
-use crate::function::{FunctionKind, SceneValue, Target, ValueSource};
+use crate::function::{ChannelRef, FunctionKind, SceneValue, Target, ValueSource};
 use crate::ids::{FixtureId, FunctionId, UniverseId};
 use crate::patch::{PatchedFixture, UNIVERSE_SIZE};
 use crate::show::Show;
@@ -354,31 +354,47 @@ pub fn overlapping(
         .collect()
 }
 
-/// One channel set by a function, as the engine computes it.
+/// Where the value of a channel in a scene comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[serde(rename_all = "snake_case")]
+pub enum ChannelOrigin {
+    /// The scene does not set it: the value is the default of the channel.
+    Unset,
+    /// Set by an intention or a palette.
+    Value,
+    /// Set by hand.
+    Manual,
+}
+
+/// One channel of a fixture driven by a scene, as the engine computes it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
-pub struct PreviewChannel {
+pub struct SceneChannel {
+    /// How to refer to this channel to set it by hand.
+    pub channel: ChannelRef,
     /// DMX address (1-based); `None` for a virtual dimmer (fixture without
     /// intensity channel: it scales the color channels).
     pub address: Option<u16>,
     pub channel_name: String,
     pub attribute: Attribute,
-    /// 8-bit value of the coarse channel.
+    /// Value at the end of the fade.
     pub value: u8,
-    /// Address and value of the fine byte for 16-bit channels.
-    pub fine_address: Option<u16>,
-    pub fine_value: Option<u8>,
+    pub origin: ChannelOrigin,
+    /// Service channels cannot be stored in scenes.
+    pub locked: bool,
 }
 
-/// What a function does to one fixture.
+/// All the channels of one fixture driven by a scene.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
-pub struct FixturePreview {
+pub struct SceneFixtureChannels {
     pub fixture: FixtureId,
     pub fixture_name: String,
     pub universe: UniverseId,
     pub address: u16,
-    pub channels: Vec<PreviewChannel>,
+    /// Virtual dimmers first, then by address.
+    pub channels: Vec<SceneChannel>,
 }
 
 /// The color a function shows (for a button or a swatch): the first color
@@ -402,7 +418,7 @@ pub fn scene_value_color(show: &Show, sv: &SceneValue) -> Option<Color> {
         ValueSource::Explicit {
             value: AttributeValue::Color { color },
         } => Some(*color),
-        ValueSource::Explicit { .. } => None,
+        ValueSource::Explicit { .. } | ValueSource::Channel { .. } => None,
         ValueSource::Palette { id } => {
             let palette = show.palette(*id)?;
             let values = match first_fixture(show, &sv.target) {

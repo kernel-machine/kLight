@@ -12,7 +12,7 @@ use crate::PersistError;
 type Migration = fn(Value) -> Result<Value, String>;
 
 /// `MIGRATIONS[i]` migrates from version `i` to `i + 1`.
-const MIGRATIONS: &[Migration] = &[v0_to_v1];
+const MIGRATIONS: &[Migration] = &[v0_to_v1, v1_to_v2];
 
 /// Version 0: pre-release files without `schema_version` and with
 /// `"cues"`-less settings. Adds the version field and default settings.
@@ -24,6 +24,14 @@ fn v0_to_v1(mut v: Value) -> Result<Value, String> {
     obj.entry("name")
         .or_insert_with(|| Value::String("Untitled".into()));
     obj.insert("schema_version".into(), Value::from(1));
+    Ok(v)
+}
+
+/// Version 2 adds channel values set by hand to scenes and cues: older
+/// shows are valid as they are, only the version number changes.
+fn v1_to_v2(mut v: Value) -> Result<Value, String> {
+    let obj = v.as_object_mut().ok_or("show is not a JSON object")?;
+    obj.insert("schema_version".into(), Value::from(2));
     Ok(v)
 }
 

@@ -1,10 +1,10 @@
 <script lang="ts">
   // Scene contents: which groups/fixtures and which intentions.
   import { app, run } from '../lib/app.svelte';
-  import ScenePreview from './ScenePreview.svelte';
+  import SceneFaders from './SceneFaders.svelte';
   import { capabilityNames, colorToHex, describeTarget, describeValue, groupFixtures, hexToColor } from '../lib/show';
-  import { colorChoices, sceneValueColor, valueSupport } from '../lib/core';
-  import type { AttributeValue, FanMode, Function as Fn, Scene, SceneValue, Target, ValueSource } from '../lib/protocol';
+  import { addSceneValues, colorChoices, sceneValueColor, setSceneChannel, valueSupport } from '../lib/core';
+  import type { AttributeValue, ChannelRef, FanMode, Function as Fn, Scene, SceneValue, Show, Target, ValueSource } from '../lib/protocol';
 
   let { f, scene }: { f: Fn; scene: Scene } = $props();
   const show = $derived(app.s.show!);
@@ -92,38 +92,47 @@
     }
   }
 
-  /** Same target and same kind of value: replaced instead of duplicated. */
-  function sameSlot(a: SceneValue, b: SceneValue): boolean {
-    if (JSON.stringify(a.target) !== JSON.stringify(b.target)) return false;
-    if (a.value.type === 'palette' || b.value.type === 'palette') {
-      return a.value.type === 'palette' && b.value.type === 'palette' && a.value.id === b.value.id;
-    }
-    return a.value.value.type === b.value.value.type;
-  }
-
   // Edits are queued and each one is applied to the latest version of the
   // scene: quick successive clicks must not overwrite each other.
   let queue: Promise<unknown> = Promise.resolve();
-  function update(change: (values: SceneValue[]) => SceneValue[]) {
+  function update(change: (values: SceneValue[], show: Show) => SceneValue[]) {
     const id = f.id;
     queue = queue.then(() => {
-      const current = app.s.show?.functions.find((x) => x.id === id);
-      if (!current || current.kind.type !== 'scene') return;
-      const values = change(current.kind.values);
+      const latest = app.s.show;
+      const current = latest?.functions.find((x) => x.id === id);
+      if (!latest || !current || current.kind.type !== 'scene') return;
+      const values = change(current.kind.values, latest);
       return run({ type: 'set_function', function: { ...current, kind: { ...current.kind, values } } });
     });
+    return queue;
   }
 
   function add() {
     const value = currentValue();
     if (!target || !value) return;
     const sv: SceneValue = { target, value };
-    update((values) => [...values.filter((x) => !sameSlot(x, sv)), sv]);
+    update((values, latest) => addSceneValues(latest, values, [sv]));
   }
 
   function mergeProgrammer(replace: boolean) {
     const incoming: SceneValue[] = programmer.map((e) => ({ target: e.target, value: { type: 'explicit', value: e.value } }));
-    update((values) => [...(replace ? [] : values.filter((x) => !incoming.some((y) => sameSlot(x, y)))), ...incoming]);
+    update((values, latest) => addSceneValues(latest, replace ? [] : values, incoming));
+  }
+
+  const setChannel = (fixture: number, channel: ChannelRef, value: number | null) =>
+    update((values) => setSceneChannel(values, fixture, channel, value));
+
+  /** Channels set by hand: listed once per fixture, edited on the faders. */
+  const manual = $derived.by(() => {
+    const counts = new Map<number, number>();
+    for (const sv of scene.values) {
+      if (sv.value.type === 'channel' && sv.target.type === 'fixture') counts.set(sv.target.id, (counts.get(sv.target.id) ?? 0) + 1);
+    }
+    return [...counts];
+  });
+
+  function releaseFixture(id: number) {
+    update((values) => values.filter((x) => !(x.value.type === 'channel' && x.target.type === 'fixture' && x.target.id === id)));
   }
 
   function removeValue(sv: SceneValue) {
@@ -132,6 +141,7 @@
 
   /** Loads an existing value into the form to edit it. */
   function load(sv: SceneValue) {
+    if (sv.value.type === 'channel') return;
     const t = targets.find((x) => JSON.stringify(x.target) === JSON.stringify(sv.target));
     if (t) targetKey = t.key;
     if (sv.value.type === 'palette') {
@@ -159,28 +169,45 @@
     return c ? colorToHex(c) : null;
   }
 
-  const describe = (sv: SceneValue) =>
-    sv.value.type === 'explicit'
-      ? describeValue(sv.value.value)
-      : `Palette "${show.palettes.find((p) => sv.value.type === 'palette' && p.id === sv.value.id)?.name ?? '?'}"`;
+  function describe(sv: SceneValue): string {
+    const v = sv.value;
+    switch (v.type) {
+      case 'explicit':
+        return describeValue(v.value);
+      case 'palette':
+        return `Palette "${show.palettes.find((p) => p.id === v.id)?.name ?? '?'}"`;
+      case 'channel':
+        return `Channel ${v.value}`;
+    }
+  }
 </script>
 
 <h3>Contents</h3>
 <table>
   <tbody>
     {#each scene.values as sv, i (i)}
-      <tr>
-        <td>{describeTarget(show, sv.target)}</td>
-        <!-- No whitespace around the text: the cell reads exactly as the value. -->
-        <td class="muted">{#if swatch(i) !== null}<span class="swatch" style="background:{swatch(i)}" title={swatch(i)}></span>{/if}{describe(sv)}</td>
-        <td class="actions">
-          <button onclick={() => load(sv)}>Edit</button>
-          <button onclick={() => removeValue(sv)}>×</button>
-        </td>
-      </tr>
-    {:else}
-      <tr><td class="muted">Empty scene: add a group or fixture below.</td></tr>
+      {#if sv.value.type !== 'channel'}
+        <tr>
+          <td>{describeTarget(show, sv.target)}</td>
+          <!-- No whitespace around the text: the cell reads exactly as the value. -->
+          <td class="muted">{#if swatch(i) !== null}<span class="swatch" style="background:{swatch(i)}" title={swatch(i)}></span>{/if}{describe(sv)}</td>
+          <td class="actions">
+            <button onclick={() => load(sv)}>Edit</button>
+            <button onclick={() => removeValue(sv)}>×</button>
+          </td>
+        </tr>
+      {/if}
     {/each}
+    {#each manual as [id, count] (id)}
+      <tr>
+        <td>{describeTarget(show, { type: 'fixture', id })}</td>
+        <td class="muted">{count} channel{count === 1 ? '' : 's'} set by hand</td>
+        <td class="actions"><button title="Release these channels" onclick={() => releaseFixture(id)}>×</button></td>
+      </tr>
+    {/each}
+    {#if !scene.values.length}
+      <tr><td class="muted">Empty scene: add a group or fixture below.</td></tr>
+    {/if}
   </tbody>
 </table>
 
@@ -253,7 +280,7 @@
   </div>
 </div>
 
-<ScenePreview functionId={f.id} />
+<SceneFaders functionId={f.id} onset={setChannel} />
 
 <style>
   .add { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; background: var(--panel-2); }

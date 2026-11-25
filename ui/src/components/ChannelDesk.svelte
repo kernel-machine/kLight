@@ -4,7 +4,7 @@
   // until it is released.
   import { app, client, run } from '../lib/app.svelte';
   import { channelMap, UNIVERSE_SIZE } from '../lib/show';
-  import ChannelIcon from './ChannelIcon.svelte';
+  import FaderStrip from './FaderStrip.svelte';
   import PresetPicker from './PresetPicker.svelte';
   import { channelPresets } from '../lib/core';
   import { hasPresets, presetAt } from '../lib/channelIcon';
@@ -96,44 +96,24 @@
     {@const presets = info ? channelPresets(show, universe, a) : []}
     {@const choosable = hasPresets(presets)}
     {@const preset = choosable ? presets[presetAt(presets, v)] : undefined}
-    <div
-      class="strip"
-      class:set
-      class:patched={info !== null}
-      class:alt={info !== null && info.fixture_index % 2 === 1}
-      class:first={info?.offset === 0}
+    <FaderStrip
+      address={a}
+      fixture={info?.offset === 0 ? info.fixture_name : ''}
+      channel={preset?.name ?? info?.channel_name ?? '—'}
+      attribute={info?.attribute ?? null}
+      value={v}
+      label="Channel {a}"
+      subject="channel {a}"
       title={info ? `${info.fixture_name} — ${info.channel_name}${preset ? `: ${preset.name}` : ''}` : 'Not patched'}
-    >
-      <div class="addr">{a}</div>
-      {#if info && choosable}
-        <button class="icon choose" title="Choose: {info.channel_name}" aria-label="Presets of channel {a}" aria-haspopup="listbox" onclick={(e) => openPicker(e, a)}>
-          <ChannelIcon attribute={info.attribute} /><span class="caret">▾</span>
-        </button>
-      {:else}
-        <div class="icon">{#if info}<ChannelIcon attribute={info.attribute} />{/if}</div>
-      {/if}
-      <div class="name">{info ? (info.offset === 0 ? info.fixture_name : '') : ''}</div>
-      <div class="ch">{preset?.name ?? info?.channel_name ?? '—'}</div>
-      <input
-        type="range"
-        min="0"
-        max="255"
-        step="1"
-        value={v}
-        aria-label="Channel {a}"
-        oninput={(e) => send(a, Number(e.currentTarget.value))}
-      />
-      <input
-        class="num"
-        type="number"
-        min="0"
-        max="255"
-        value={v}
-        aria-label="Channel {a} value"
-        onchange={(e) => send(a, Math.max(0, Math.min(255, Math.round(Number(e.currentTarget.value) || 0))))}
-      />
-      <button class="release" disabled={!set} title="Release" onclick={() => send(a, null)}>×</button>
-    </div>
+      patched={info !== null}
+      alt={info !== null && info.fixture_index % 2 === 1}
+      first={info?.offset === 0}
+      {set}
+      onchoose={choosable ? (e) => openPicker(e, a) : undefined}
+      oninput={(value) => send(a, value)}
+      onentry={(value) => send(a, value)}
+      onrelease={() => send(a, null)}
+    />
   {/each}
 </div>
 
@@ -153,19 +133,4 @@
 <style>
   .toolbar { margin-bottom: 10px; }
   .strips { display: grid; grid-template-columns: repeat(auto-fill, minmax(56px, 1fr)); gap: 4px; }
-  .strip { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 4px 2px; border-radius: var(--radius); background: var(--panel); border: 1px solid var(--border); min-width: 0; }
-  .strip.patched { background: color-mix(in srgb, var(--accent) 8%, var(--panel)); }
-  .strip.patched.alt { background: color-mix(in srgb, var(--ok) 8%, var(--panel)); }
-  .strip.first { border-left: 3px solid var(--accent); }
-  .strip.set { border-color: var(--warn); box-shadow: inset 0 0 0 1px var(--warn); }
-  .icon { height: 16px; }
-  .choose { display: inline-flex; align-items: center; gap: 1px; height: 18px; padding: 0 3px; border: 1px solid var(--border); border-radius: 4px; background: transparent; cursor: pointer; }
-  .choose:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 15%, transparent); }
-  .caret { font-size: 8px; color: var(--muted); }
-  .addr { font-weight: 700; font-variant-numeric: tabular-nums; font-size: 12px; }
-  .name, .ch { font-size: 9px; color: var(--muted); width: 100%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; height: 11px; }
-  .name { color: var(--text); }
-  input[type='range'] { writing-mode: vertical-lr; direction: rtl; height: 120px; width: 24px; }
-  .num { width: 48px; padding: 2px; text-align: center; font-size: 12px; }
-  .release { padding: 0 8px; font-size: 12px; }
 </style>

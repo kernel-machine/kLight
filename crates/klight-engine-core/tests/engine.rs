@@ -1579,8 +1579,10 @@ fn function_folders_are_validated() {
 }
 
 #[test]
-fn scene_preview_lists_fixtures_and_channel_values() {
+fn scene_channels_list_fixtures_and_channel_values() {
     use klight_engine_core::compile::CompiledShow;
+    use klight_engine_core::preview::scene_channels;
+    use klight_model::inspect::{ChannelOrigin, SceneChannel, SceneFixtureChannels};
     let mut show = test_show();
     show.fixtures[5].orientation.invert_pan = false;
     show.functions.push(scene(
@@ -1602,7 +1604,7 @@ fn scene_preview_lists_fixtures_and_channel_values() {
         0,
     ));
     let compiled = CompiledShow::build(&show);
-    let p = klight_engine_core::preview::scene_preview(&show, &compiled, FunctionId(1)).unwrap();
+    let p = scene_channels(&show, &compiled, FunctionId(1)).unwrap();
     let names: Vec<&str> = p.iter().map(|f| f.fixture_name.as_str()).collect();
     assert_eq!(names, vec!["RGB", "Spot 1", "Spot 2"], "sorted by address");
 
@@ -1618,19 +1620,50 @@ fn scene_preview_lists_fixtures_and_channel_values() {
         (Some(10), "Red", 255)
     );
 
-    // Fans are resolved per head, with the fine byte of 16-bit channels.
-    let pan = |f: &klight_model::inspect::FixturePreview| {
+    // Every channel of a driven fixture is listed, set or not.
+    let spot = &p[1];
+    let addresses: Vec<u16> = spot.channels.iter().filter_map(|c| c.address).collect();
+    let size = spot.channels.len() as u16;
+    assert_eq!(addresses, (40..40 + size).collect::<Vec<_>>());
+    let by_name = |f: &SceneFixtureChannels, n: &str| -> SceneChannel {
         f.channels
             .iter()
-            .find(|c| c.channel_name == "Pan")
+            .find(|c| c.channel_name == n)
             .unwrap()
             .clone()
     };
-    let expect = |deg: f32| klight_fixtures::convert::degrees_to_dmx16(deg, 540.0).to_be_bytes();
-    let (s1, s2) = (pan(&p[1]), pan(&p[2]));
-    assert_eq!((s1.address, s1.fine_address), (Some(40), Some(41)));
-    assert_eq!([s1.value, s1.fine_value.unwrap()], expect(-30.0));
-    assert_eq!([s2.value, s2.fine_value.unwrap()], expect(30.0));
+    assert_eq!(by_name(spot, "Pan").origin, ChannelOrigin::Value);
+    assert!(spot
+        .channels
+        .iter()
+        .any(|c| c.origin == ChannelOrigin::Unset));
 
-    assert!(klight_engine_core::preview::scene_preview(&show, &compiled, FunctionId(99)).is_none());
+    // Fans are resolved per head, with the fine byte of 16-bit channels.
+    let pan = |f: &SceneFixtureChannels| {
+        (
+            by_name(f, "Pan").value,
+            f.channels
+                .iter()
+                .find(|c| {
+                    matches!(
+                        c.channel,
+                        ChannelRef::Dmx {
+                            attribute: Attribute::Pan,
+                            fine: true,
+                            ..
+                        }
+                    )
+                })
+                .unwrap()
+                .value,
+        )
+    };
+    let expect = |deg: f32| {
+        let [hi, lo] = klight_fixtures::convert::degrees_to_dmx16(deg, 540.0).to_be_bytes();
+        (hi, lo)
+    };
+    assert_eq!(pan(&p[1]), expect(-30.0));
+    assert_eq!(pan(&p[2]), expect(30.0));
+
+    assert!(scene_channels(&show, &compiled, FunctionId(99)).is_none());
 }

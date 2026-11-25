@@ -214,8 +214,10 @@
 </div>
 
 <style>
-  .fx { display: grid; grid-template-columns: minmax(280px, 1fr) 2fr; gap: 12px; }
-  @media (max-width: 900px) { .fx { grid-template-columns: 1fr; } }
+  .fx { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(0, 2fr); gap: 12px; }
+  @media (max-width: 900px) { .fx { grid-template-columns: minmax(0, 1fr); } }
+  /* A wide row of faders scrolls inside the editor instead of widening it. */
+  .editor { min-width: 0; }
   .seq { margin-top: 12px; }
   .seq summary { cursor: pointer; font-weight: 600; margin-bottom: 8px; }
   tr { cursor: pointer; }
