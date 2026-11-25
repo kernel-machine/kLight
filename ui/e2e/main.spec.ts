@@ -447,17 +447,20 @@ test('chaser steps are picked in a dialog and can be reordered', async ({ page }
 
   // Regression: two clicks before the engine answers carried the same position,
   // and the second one hit whatever had moved there. Both clicks are sent in the
-  // same task, then the engine is given time to apply what it received.
+  // same task. The warning shows once the second one has been handled: only then
+  // is the list final.
+  const warning = page.getByText('The steps changed in the meantime');
   const clickTwice = async (button: string) => {
     await page.getByRole('button', { name: button, exact: true }).evaluate((b: HTMLButtonElement) => {
       b.click();
       b.click();
     });
-    await page.waitForTimeout(500);
+    await expect(warning).toBeVisible();
   };
   await clickTwice('Move step 3 up');
   await expect(steps).toHaveText(['Step B', 'Step A', 'Step C']);
-  await expect(page.getByText('The steps changed in the meantime').first()).toBeVisible();
+  // The next check needs a warning of its own.
+  await expect(warning).toHaveCount(0);
   await clickTwice('Remove step 1');
   await expect(steps).toHaveText(['Step A', 'Step C']);
   // Back to the previous list for what follows.

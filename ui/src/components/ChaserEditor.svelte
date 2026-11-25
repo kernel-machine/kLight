@@ -58,7 +58,8 @@
 
   /** Moves the step at `from` so that it ends up at `to`. */
   function move(seen: ChaserStep[], from: number, to: number) {
-    if (from === to || to < 0 || to >= seen.length) return;
+    const inList = (i: number) => i >= 0 && i < seen.length;
+    if (from === to || !inList(from) || !inList(to)) return;
     editPositions(seen, (steps) => {
       steps.splice(to, 0, ...steps.splice(from, 1));
       return steps;
