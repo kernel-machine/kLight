@@ -248,7 +248,10 @@ consoles (grandMA, MagicQ), with a simple interface.
   the scene sets it (the editor marks it as such). Values apply in order: a
   channel set by hand wins over the older values, and applying a new intention
   or palette releases the channels it writes.
-- `Chaser` — sequence of steps (scene references) with times, direction, mode.
+- `Chaser` — sequence of steps with times, direction, mode. A step references a
+  scene, a movement effect or a matrix effect. An effect runs while its step is
+  current, from the start of its cycle, in the effects layer (§8.2). The step
+  fade is the crossfade of scenes: effects start and stop at once.
 - `CueList` — cues with times, Go/Back/Pause, current cue.
 - `MovementEffect` (EFX) — pan/tilt generators: circle, eight, line, square,
   lissajous; size, speed, phase distributed over the group.
@@ -259,6 +262,11 @@ consoles (grandMA, MagicQ), with a simple interface.
   fine channels included).
 - All times (chaser steps, effect duration and speed, fades) can be
   expressed **in milliseconds or in beats**, locked to the musical clock (§8.4).
+- In the UI, chaser step and fade times and effect cycles are **picked in
+  beats**, from 1/32 to 32, doubling (the fade also 0): in the FX screen and in
+  the settings of a virtual console widget bound to the function, which edit the
+  function itself. A time in milliseconds already in a show is kept until
+  another one is picked.
 - **Move in black**: if a head has zero intensity in a cue, the engine moves
   it in advance to the position, color and beam of the next cue in which it
   lights up (can be enabled per cue list and per cue).
@@ -271,11 +279,18 @@ state** managed by the core.
 Types for v1 (parity with QLC+):
 - Containers: `Frame` (with pages), `SoloFrame` (only one active child).
 - Controls: `Button`, `Slider` (level / playback / submaster), `Knob`,
-  `XYPad`, `SpeedDial` (tap tempo, multipliers).
+  `XYPad`, `SpeedDial` (tap tempo, multipliers). The UI does not offer new
+  speed dials: tempo is tapped from the global control. Shows that already
+  contain one keep working.
 - Playback: `CueListWidget`, `AnimationWidget` (matrix control).
 - Informational: `Label`, `Clock`.
 
 **Behaviours** (e.g. SoloFrame exclusivity, cue advance) are core rules, not UI rules.
+
+A button is **lit** while its function runs. It is also lit while a step of a
+running chaser plays its function (paused state if the chaser is paused), both
+on screen and on controller LEDs; pressing it still starts or stops the
+function itself.
 
 **Design / Show** mode at core level: in Show mode commands that modify the
 structure are rejected. Switching to Design from remote clients requires a PIN.
@@ -409,7 +424,7 @@ Architecture ready for Art-Net/sACN (same trait), not implemented in v1.
   get on/off from the feedback range; without any feedback they are not listed.
   A TOML profile with the same id takes precedence.
 - Per configured controller the user picks the LED behaviour for **widget on**
-  (its function is running; default: the profile's own "on" channel) and for
+  (it is lit, §7.6; default: the profile's own "on" channel) and for
   **widget off** (default: LED off). A third state (armed / next) with its own
   behaviour is future work: for now it blinks between the two.
 - Widget **states** → color variants: inactive (dim), active (full),

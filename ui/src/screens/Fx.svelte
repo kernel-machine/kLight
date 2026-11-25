@@ -1,7 +1,7 @@
 <script lang="ts">
   // Functions: scenes, chasers, cue lists, effects, palettes.
   import { app, run } from '../lib/app.svelte';
-  import { colorSequence, colorToHex, describeTarget, describeValue, formatTime, hexToColor, maxSequenceColors, nextId, parseTime } from '../lib/show';
+  import { chaserStepTypes, colorSequence, colorToHex, describeTarget, describeValue, formatTime, hexToColor, maxSequenceColors, nextId, parseTime } from '../lib/show';
   import type { Cue, Function as Fn, FunctionKind, SceneValue, TimeValue } from '../lib/protocol';
   import SceneEditor from '../components/SceneEditor.svelte';
   import MovementEditor from '../components/MovementEditor.svelte';
@@ -14,7 +14,7 @@
   const programmer = $derived(app.s.runtime?.state.programmer ?? []);
   let selectedId = $state<number | null>(null);
   const selected = $derived(show.functions.find((f) => f.id === selectedId) ?? null);
-  /** Chaser whose "add scenes" dialog is open. */
+  /** Chaser whose "add steps" dialog is open. */
   let picking = $state<number | null>(null);
 
   function kindLabel(k: FunctionKind['type']) {
@@ -44,8 +44,8 @@
     };
     if (!(await save({ id, name: `${kindLabel(type)} ${id}`, kind: kinds[type], folder }))) return;
     selectedId = id;
-    // A new chaser starts by asking for its scenes.
-    if (type === 'chaser' && show.functions.some((f) => f.kind.type === 'scene')) picking = id;
+    // A new chaser starts by asking for its steps.
+    if (type === 'chaser' && show.functions.some((f) => chaserStepTypes().includes(f.kind.type))) picking = id;
   }
 
   const programmerValues = (): SceneValue[] => programmer.map((e) => ({ target: e.target, value: { type: 'explicit', value: e.value } }));
@@ -161,7 +161,7 @@
         </div>
         <SceneEditor {f} scene={k} />
       {:else if f.kind.type === 'chaser'}
-        <ChaserEditor {f} chaser={f.kind} {timeInput} bind:picking />
+        <ChaserEditor {f} chaser={f.kind} bind:picking />
       {:else if f.kind.type === 'cue_list'}
         {@const k = f.kind}
         {@const pos = active.get(f.id)?.position}

@@ -5,4 +5,8 @@ export type ActiveFunction = { id: FunctionId, level: number,
 /**
  * Current cue (cue lists) or step (chasers).
  */
-position: number | null, paused: boolean, };
+position: number | null, paused: boolean, 
+/**
+ * Function played by the current step (chasers).
+ */
+step_function: FunctionId | null, };

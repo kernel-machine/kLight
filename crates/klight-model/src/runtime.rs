@@ -67,6 +67,9 @@ pub struct ActiveFunction {
     pub position: Option<u32>,
     #[serde(default)]
     pub paused: bool,
+    /// Function played by the current step (chasers).
+    #[serde(default)]
+    pub step_function: Option<FunctionId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -1,14 +1,18 @@
 <script lang="ts">
   // Dialog: pick functions from the same tree as the FX screen (type > folders),
-  // optionally ordering them; the caller decides what to do with them.
-  import type { Snippet } from 'svelte';
+  // optionally ordering them, or exactly one (`single`); the caller decides what
+  // to do with them.
+  import { untrack, type Snippet } from 'svelte';
   import { app } from '../lib/app.svelte';
-  import { FUNCTION_CATEGORIES, colorToHex, foldersIn, functionColor, functionsIn, functionsUnder } from '../lib/show';
+  import { FUNCTION_CATEGORIES, foldersIn, functionsIn, functionsUnder } from '../lib/show';
+  import FunctionIcon from './FunctionIcon.svelte';
   import type { Function as Fn, FunctionCategory, FunctionFolder } from '../lib/protocol';
 
   let {
     title,
     only,
+    single = false,
+    initial = null,
     ordering,
     empty,
     confirmLabel,
@@ -19,6 +23,10 @@
     title: string;
     /** Types of function offered (all when omitted). */
     only?: FunctionCategory[];
+    /** Only one function can be chosen. */
+    single?: boolean;
+    /** Function already chosen when the dialog opens. */
+    initial?: number | null;
     /** Lists the chosen functions to order them here; `hint` shows while empty. */
     ordering?: { title: string; hint: string };
     /** Shown when there is nothing to choose from. */
@@ -33,7 +41,7 @@
 
   const show = $derived(app.s.show!);
   /** Chosen functions, in order. */
-  let order = $state<number[]>([]);
+  let order = $state<number[]>(untrack(() => (initial === null ? [] : [initial])));
   let collapsed = $state<Set<string>>(new Set());
 
   const chosen = $derived(new Set(order));
@@ -50,7 +58,8 @@
   }
 
   function toggleFunction(id: number) {
-    order = chosen.has(id) ? order.filter((x) => x !== id) : [...order, id];
+    if (single) order = [id];
+    else order = chosen.has(id) ? order.filter((x) => x !== id) : [...order, id];
   }
 
   /** All / some / none of the functions of a group are chosen. */
@@ -76,6 +85,11 @@
     order = next;
   }
 
+  /** Brings the function already chosen into view when the dialog opens. */
+  function reveal(node: HTMLInputElement, on: boolean) {
+    if (on) node.focus();
+  }
+
   function indeterminate(node: HTMLInputElement, on: boolean) {
     node.indeterminate = on;
     return { update: (v: boolean) => (node.indeterminate = v) };
@@ -96,10 +110,16 @@
 {/snippet}
 
 {#snippet functionRow(f: Fn, depth: number)}
-  {@const c = functionColor(show, f)}
   <label class="item fn" style="--depth:{depth}">
-    <input type="checkbox" checked={chosen.has(f.id)} onchange={() => toggleFunction(f.id)} aria-label="Select {f.name}" />
-    <span class="swatch" style={c ? `background:${colorToHex(c)}` : ''}></span>
+    <input
+      type={single ? 'radio' : 'checkbox'}
+      name="picked-function"
+      checked={chosen.has(f.id)}
+      onchange={() => toggleFunction(f.id)}
+      use:reveal={single && f.id === initial}
+      aria-label="Select {f.name}"
+    />
+    <FunctionIcon {f} />
     <span class="name">{f.name}</span>
   </label>
 {/snippet}
@@ -119,7 +139,7 @@
     onkeydown={(e) => e.key === 'Enter' && toggleOpen(key)}
   >
     <span class="caret">{open ? '▾' : '▸'}</span>
-    {@render groupBox(functionsUnder(show, folder.category, folder.id), folder.name)}
+    {#if !single}{@render groupBox(functionsUnder(show, folder.category, folder.id), folder.name)}{/if}
     <span class="icon">📁</span>
     <span class="name">{folder.name}</span>
   </div>
@@ -155,7 +175,7 @@
             onkeydown={(e) => e.key === 'Enter' && toggleOpen(key)}
           >
             <span class="caret">{open ? '▾' : '▸'}</span>
-            {@render groupBox(functionsUnder(show, c.id, null), c.label)}
+            {#if !single}{@render groupBox(functionsUnder(show, c.id, null), c.label)}{/if}
             <b class="name">{c.label}</b>
           </div>
           {#if open}
@@ -199,13 +219,13 @@
   .backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); display: flex; align-items: center; justify-content: center; z-index: 50; }
   .dialog { width: min(520px, 94vw); max-height: 88vh; display: flex; flex-direction: column; gap: 10px; overflow: auto; }
   .tree { display: flex; flex-direction: column; gap: 6px; overflow: auto; min-height: 120px; max-height: 40vh; }
-  .category { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  /* Never squeezed: a long list scrolls the tree. */
+  .category { flex: none; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
   .item { display: flex; align-items: center; gap: 6px; padding: 4px 6px 4px calc(6px + var(--depth, 0) * 16px); border-top: 1px solid var(--border); cursor: pointer; user-select: none; }
   .head { background: var(--panel-2); border-top: none; }
   .caret { width: 14px; color: var(--muted); }
   .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .swatch { width: 14px; height: 14px; border-radius: 4px; border: 1px solid var(--border); background: transparent; }
-  .order { margin: 0; padding: 0; list-style: none; border: 1px solid var(--border); border-radius: var(--radius); max-height: 24vh; overflow: auto; }
+  .order { flex: none; margin: 0; padding: 0; list-style: none; border: 1px solid var(--border); border-radius: var(--radius); max-height: 24vh; overflow: auto; }
   .order li { display: flex; align-items: center; gap: 6px; padding: 3px 8px; border-bottom: 1px solid var(--border); }
   .order li:last-child { border-bottom: none; }
   .end { justify-content: flex-end; }

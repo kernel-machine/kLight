@@ -5,6 +5,9 @@
   import type { ButtonAction, SliderMode, VirtualConsole, Widget, WidgetKind } from '../lib/protocol';
   import VcWidget from '../components/VcWidget.svelte';
   import FrameFromScenes from '../components/FrameFromScenes.svelte';
+  import FunctionPickerDialog from '../components/FunctionPickerDialog.svelte';
+  import FunctionIcon from '../components/FunctionIcon.svelte';
+  import FunctionTiming from '../components/FunctionTiming.svelte';
 
   const show = $derived(app.s.show!);
   const vc = $derived(show.virtual_console);
@@ -116,8 +119,7 @@
    * and no color of its own takes the function's name and, for a scene that
    * sets a color, that color; customised buttons keep theirs.
    */
-  function assignFunction(w: Widget, value: string) {
-    const id = value === '' ? null : Number(value);
+  function assignFunction(w: Widget, id: number | null) {
     const f = show.functions.find((x) => x.id === id);
     update(w.id, (x) => {
       const next: Widget = { ...x, function: id };
@@ -132,6 +134,9 @@
       return next;
     });
   }
+
+  /** Widget whose function dialog is open. */
+  let pickingFor = $state<number | null>(null);
 
   function hexToRgb8(hex: string) {
     const n = Number.parseInt(hex.slice(1), 16);
@@ -152,7 +157,6 @@
       <button onclick={() => add({ type: 'slider', mode: 'Playback' }, 'Fader', 70, 220)}>Slider</button>
       <button onclick={() => add({ type: 'knob' }, 'Knob', 100, 130)}>Knob</button>
       <button onclick={() => add({ type: 'cue_list' }, 'Cue list', 140, 90)}>Cue list</button>
-      <button onclick={() => add({ type: 'speed_dial' }, 'Tempo', 100, 80)}>Speed dial</button>
       <button onclick={() => add({ type: 'frame', pages: 1 }, 'Frame', 360, 240)}>Frame</button>
       <button onclick={() => add({ type: 'solo_frame' }, 'Solo frame', 360, 240)}>Solo frame</button>
       <button onclick={() => (framePicker = true)} disabled={!show.functions.length} title="Create a frame with one button per chosen function">Frame from functions…</button>
@@ -199,10 +203,32 @@
             <option>Playback</option><option>Submaster</option><option>GrandMaster</option></select></label>
         {/if}
         {#if !['frame', 'solo_frame', 'label', 'clock', 'speed_dial'].includes(w.kind.type)}
-          <label>Function <select value={w.function ?? ''} onchange={(e) => assignFunction(w, e.currentTarget.value)}>
-            <option value="">— none —</option>
-            {#each show.functions as f (f.id)}<option value={f.id}>{f.name}</option>{/each}
-          </select></label>
+          {@const fn = show.functions.find((x) => x.id === w.function)}
+          {@const fnName = fn?.name ?? (w.function === null ? '— none —' : `#${w.function} (missing)`)}
+          <div class="col function">
+            <span>Function</span>
+            <div class="row">
+              <button class="grow pick" disabled={!show.functions.length} onclick={() => (pickingFor = w.id)} aria-label="Function: {fnName}" title="Choose the function">
+                {#if fn}<FunctionIcon f={fn} />{/if}
+                <span class="name">{fnName}</span>
+              </button>
+              {#if w.function !== null}<button onclick={() => assignFunction(w, null)} aria-label="Remove function">×</button>{/if}
+            </div>
+          </div>
+          {#if fn}
+            {#key fn.id}<FunctionTiming f={fn} />{/key}
+          {/if}
+          {#if pickingFor === w.id}
+            <FunctionPickerDialog
+              title="Function of {w.props.label}"
+              single
+              initial={fn?.id ?? null}
+              empty="There are no functions yet."
+              confirmLabel={() => 'Assign'}
+              onconfirm={([id]) => { pickingFor = null; if (id !== undefined && id !== w.function) assignFunction(w, id); }}
+              onclose={() => (pickingFor = null)}
+            />
+          {/if}
         {/if}
         {#if !['frame', 'solo_frame', 'label', 'clock'].includes(w.kind.type)}
           <div class="midi col">
@@ -233,5 +259,8 @@
   .props { width: 260px; flex-shrink: 0; }
   .midi { gap: 6px; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius); }
   .grow { flex: 1; }
+  .function { gap: 4px; }
+  .pick { display: flex; align-items: center; gap: 6px; min-width: 0; text-align: left; }
+  .pick .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .props label { display: flex; flex-direction: column; gap: 4px; }
 </style>

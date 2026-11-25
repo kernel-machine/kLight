@@ -19,7 +19,7 @@ use klight_model::{
 };
 
 use crate::compile::{
-    CompiledFunction, CompiledShow, LogicalChannel, Merge, Role, NO_ADDR, NO_CHANNEL,
+    CompiledFunction, CompiledShow, LogicalChannel, Merge, Role, StepContent, NO_ADDR, NO_CHANNEL,
 };
 use crate::effects::{cycle_turns, render_matrix, render_movement};
 use crate::frame::{DmxFrame, FrameSlot};
@@ -177,6 +177,7 @@ impl Engine {
                     level: f32::from(p.level) / 65535.0,
                     position: p.position(),
                     paused: p.paused_since.is_some(),
+                    step_function: p.step_function(),
                 })
                 .collect(),
             programmer: self.rt.programmer_entries.clone(),
@@ -281,9 +282,11 @@ impl Engine {
                 (PlaybackKind::Chaser(state), CompiledFunction::Chaser(new)) => {
                     state.step = state.step.min(new.steps.len().saturating_sub(1));
                     p.instances.clear();
-                    if let Some(step) = new.steps.get(state.step) {
+                    if let Some(StepContent::Scene(scene)) =
+                        new.steps.get(state.step).map(|s| &s.content)
+                    {
                         let mut inst = SceneInstance::default();
-                        inst.rebind(step.scene.clone(), now, bpm, base, channels);
+                        inst.rebind(scene.clone(), now, bpm, base, channels);
                         p.instances.push(inst);
                     }
                     state.chaser = new;
@@ -417,9 +420,19 @@ impl Engine {
     fn edit(&mut self, f: impl FnOnce(&mut Show) -> EditResult) -> EditResult {
         let mut s = (*self.show).clone();
         let warnings = f(&mut s)?;
+        let before = Arc::clone(&self.compiled);
         self.commit(s);
+        // Only what the edit brings: warnings already standing stay listed in
+        // the snapshot without being reported again at every change.
         let mut all = warnings;
-        all.extend(self.compiled.warnings.iter().take(20).cloned());
+        all.extend(
+            self.compiled
+                .warnings
+                .iter()
+                .filter(|w| !before.warnings.contains(w))
+                .take(20)
+                .cloned(),
+        );
         Ok(all)
     }
 
@@ -1272,6 +1285,37 @@ impl Engine {
                         cycle_turns(m.period, p.started_us, p.started_beat, now, &self.rt.music);
                     render_matrix(m, t, p.level, channels, &mut self.rt.effects);
                 }
+                PlaybackKind::Chaser(state) => {
+                    // Scenes (also those fading out) go to the base layer.
+                    p.render_base(now, channels, &mut self.rt.base);
+                    let Some(step) = state.chaser.steps.get(state.step) else {
+                        continue;
+                    };
+                    if p.stopping {
+                        continue;
+                    }
+                    // An effect step runs from the start of the step.
+                    let turns = |period| {
+                        cycle_turns(
+                            period,
+                            state.step_start_us,
+                            state.step_start_beat,
+                            p.render_time(now),
+                            &self.rt.music,
+                        )
+                    };
+                    match &step.content {
+                        StepContent::Scene(_) => {}
+                        StepContent::Movement(m) => {
+                            let t = turns(m.effect.period);
+                            render_movement(m, t, channels, &mut self.rt.effects);
+                        }
+                        StepContent::Matrix(m) => {
+                            let t = turns(m.period);
+                            render_matrix(m, t, p.level, channels, &mut self.rt.effects);
+                        }
+                    }
+                }
                 _ => p.render_base(now, channels, &mut self.rt.base),
             }
         }
@@ -1361,13 +1405,21 @@ impl Engine {
                         }
                     }
                     (PlaybackKind::Chaser(state), Some(pos)) => {
-                        if let Some(step) = state.chaser.steps.get(pos as usize) {
-                            state.step = pos as usize;
-                            let scene = step.scene.clone();
+                        // `pos` is the step's place in the show's chaser.
+                        let found = state
+                            .chaser
+                            .steps
+                            .iter()
+                            .enumerate()
+                            .find(|(_, s)| s.index == pos as usize);
+                        if let Some((i, step)) = found {
+                            state.step = i;
                             p.instances.clear();
-                            let mut inst = SceneInstance::default();
-                            inst.rebind(scene, now, bpm, ctx.base, ctx.channels);
-                            p.instances.push(inst);
+                            if let StepContent::Scene(scene) = &step.content {
+                                let mut inst = SceneInstance::default();
+                                inst.rebind(scene.clone(), now, bpm, ctx.base, ctx.channels);
+                                p.instances.push(inst);
+                            }
                         }
                     }
                     _ => {

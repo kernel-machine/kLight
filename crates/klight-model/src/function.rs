@@ -24,6 +24,12 @@ impl Default for TimeValue {
 impl TimeValue {
     pub const ZERO: TimeValue = TimeValue::Ms(0);
 
+    /// Beat lengths offered for the times that follow the tempo (chaser steps
+    /// and fades, effect cycles): from 1/32 to 32 beats, doubling.
+    pub const BEAT_CHOICES: [f32; 11] = [
+        0.03125, 0.0625, 0.125, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0,
+    ];
+
     /// Duration in microseconds at the given tempo. Invalid values (NaN,
     /// negative, non-positive BPM) yield 0.
     pub fn to_micros(self, bpm: f64) -> u64 {
@@ -172,7 +178,9 @@ pub enum RunMode {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct ChaserStep {
-    /// Scene played by this step.
+    /// Function played by this step, of one of the types in
+    /// [`FunctionCategory::CHASER_STEPS`]. (Named after scenes, the first of
+    /// them, so that existing show files keep loading.)
     pub scene: FunctionId,
     /// Overrides of the chaser defaults.
     #[serde(default)]
@@ -324,6 +332,15 @@ pub enum FunctionCategory {
     CueList,
     MovementEffect,
     MatrixEffect,
+}
+
+impl FunctionCategory {
+    /// Types of function a chaser step can play.
+    pub const CHASER_STEPS: [FunctionCategory; 3] = [
+        FunctionCategory::Scene,
+        FunctionCategory::MovementEffect,
+        FunctionCategory::MatrixEffect,
+    ];
 }
 
 impl FunctionKind {

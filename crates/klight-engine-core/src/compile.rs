@@ -122,9 +122,23 @@ impl CompiledScene {
     }
 }
 
+/// What a chaser step plays.
+#[derive(Debug, Clone)]
+pub enum StepContent {
+    /// A copy of the scene with the step's crossfade as its timing.
+    Scene(Arc<CompiledScene>),
+    Movement(Arc<CompiledMovement>),
+    Matrix(Arc<CompiledMatrix>),
+}
+
 #[derive(Debug, Clone)]
 pub struct CompiledStep {
-    pub scene: Arc<CompiledScene>,
+    /// Position of the step in the show's chaser: invalid steps are dropped,
+    /// so it can differ from the position among the compiled steps.
+    pub index: usize,
+    /// Function the step plays.
+    pub source: FunctionId,
+    pub content: StepContent,
     pub hold: TimeValue,
     pub fade: TimeValue,
 }
@@ -366,7 +380,12 @@ impl CompiledShow {
             ));
         }
 
-        for func in &show.functions {
+        // Chasers last: their effect steps reuse the compiled effects.
+        let (chasers, others): (Vec<_>, Vec<_>) = show
+            .functions
+            .iter()
+            .partition(|f| matches!(f.kind, FunctionKind::Chaser(_)));
+        for func in others.into_iter().chain(chasers) {
             match compile_function(show, &mut c, &func.kind) {
                 Some(cf) => {
                     c.functions.insert(func.id, cf);
@@ -676,11 +695,11 @@ fn compile_function(
 
 fn compile_chaser(show: &Show, c: &mut CompiledShow, ch: &Chaser) -> CompiledChaser {
     let mut steps = Vec::new();
-    for step in &ch.steps {
-        match show.function(step.scene).map(|f| &f.kind) {
+    for (index, step) in ch.steps.iter().enumerate() {
+        let fade = step.fade.unwrap_or(ch.fade);
+        let content = match show.function(step.scene).map(|f| &f.kind) {
             Some(FunctionKind::Scene(s)) => {
                 let mut scene = c.compile_scene(show, s);
-                let fade = step.fade.unwrap_or(ch.fade);
                 // Step crossfade replaces the scene's own fade times.
                 scene.timing = [Timing {
                     delay: TimeValue::ZERO,
@@ -688,14 +707,24 @@ fn compile_chaser(show: &Show, c: &mut CompiledShow, ch: &Chaser) -> CompiledCha
                     fade_out: fade,
                 }; 4];
                 scene.spread = Spread::None;
-                steps.push(CompiledStep {
-                    scene: Arc::new(scene),
-                    hold: step.hold.unwrap_or(ch.hold),
-                    fade,
-                });
+                Some(StepContent::Scene(Arc::new(scene)))
             }
-            _ => c.warn(format!(
-                "chaser step references {} which is not a scene",
+            _ => match c.functions.get(&step.scene) {
+                Some(CompiledFunction::Movement(m)) => Some(StepContent::Movement(m.clone())),
+                Some(CompiledFunction::Matrix(m)) => Some(StepContent::Matrix(m.clone())),
+                _ => None,
+            },
+        };
+        match content {
+            Some(content) => steps.push(CompiledStep {
+                index,
+                source: step.scene,
+                content,
+                hold: step.hold.unwrap_or(ch.hold),
+                fade,
+            }),
+            None => c.warn(format!(
+                "chaser step references {} which is not a playable scene or effect",
                 step.scene.0
             )),
         }

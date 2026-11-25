@@ -14,9 +14,10 @@ use klight_engine_core::preview::scene_channels;
 use klight_engine_core::scene_edit;
 use klight_fixtures::color_sequence;
 use klight_model::inspect::{self, SceneFixtureChannels};
+use klight_model::vc::{widget_light, WidgetKind, WidgetLight};
 use klight_model::{
-    ChannelRef, Color, FixtureId, FunctionId, GroupId, GroupLayout, MatrixEffect, MovementEffect,
-    Rgb8, SceneValue, Show, UniverseId,
+    ActiveFunction, ChannelRef, Color, FixtureId, FunctionCategory, FunctionId, GroupId,
+    GroupLayout, MatrixEffect, MovementEffect, Rgb8, SceneValue, Show, TimeValue, UniverseId,
 };
 use wasm_bindgen::prelude::*;
 
@@ -343,6 +344,53 @@ pub fn beat_flash_bits(beat: f64, bpm: f64, beats_per_bar: u8) -> u8 {
     u8::from(f.on) | (u8::from(f.down) << 1)
 }
 
+fn widget_light_json(
+    kind: &str,
+    function: Option<u32>,
+    blackout: bool,
+    active: &str,
+) -> Result<WidgetLight, String> {
+    let kind: WidgetKind = parse(kind, "widget kind")?;
+    let active: Vec<ActiveFunction> = parse(active, "active functions")?;
+    Ok(widget_light(
+        &kind,
+        function.map(FunctionId),
+        blackout,
+        &active,
+    ))
+}
+
+/// Whether a widget bound to `function` is lit: 0 = off, 1 = on, 2 = paused.
+/// `kind` is a JSON `WidgetKind`, `active` a JSON `ActiveFunction[]`. The
+/// engine uses the same function for controller LEDs.
+#[wasm_bindgen]
+pub fn widget_light_code(
+    kind: &str,
+    function: Option<u32>,
+    blackout: bool,
+    active: &str,
+) -> Result<u8, JsError> {
+    let light =
+        widget_light_json(kind, function, blackout, active).map_err(|e| JsError::new(&e))?;
+    Ok(match light {
+        WidgetLight::Off => 0,
+        WidgetLight::On => 1,
+        WidgetLight::Paused => 2,
+    })
+}
+
+/// JSON `FunctionCategory[]`: the types of function a chaser step can play.
+#[wasm_bindgen]
+pub fn chaser_step_types() -> String {
+    to_json(&FunctionCategory::CHASER_STEPS)
+}
+
+/// The beat lengths offered for chaser steps and fades and effect cycles.
+#[wasm_bindgen]
+pub fn beat_choices() -> Vec<f32> {
+    TimeValue::BEAT_CHOICES.to_vec()
+}
+
 /// Most colors `color_sequence` can return.
 #[wasm_bindgen]
 pub fn max_sequence_colors() -> u32 {
@@ -377,6 +425,29 @@ mod tests {
         assert_eq!(beat_flash_bits(8.0, 120.0, 4), 0b11);
         assert_eq!(beat_flash_bits(9.0, 120.0, 4), 0b01);
         assert_eq!(beat_flash_bits(9.5, 120.0, 4), 0);
+    }
+
+    #[test]
+    fn widget_light_json_shape() {
+        let kind = r#"{"type":"button","action":"Toggle"}"#;
+        let active = r#"[{"id":10,"level":1,"position":0,"paused":false,"step_function":1}]"#;
+        assert_eq!(
+            widget_light_json(kind, Some(1), false, active),
+            Ok(WidgetLight::On)
+        );
+        assert_eq!(
+            widget_light_json(kind, Some(2), false, active),
+            Ok(WidgetLight::Off)
+        );
+        assert!(widget_light_json("{", None, false, "[]").is_err());
+    }
+
+    #[test]
+    fn chaser_step_types_json_shape() {
+        assert_eq!(
+            chaser_step_types(),
+            r#"["scene","movement_effect","matrix_effect"]"#
+        );
     }
 
     #[test]

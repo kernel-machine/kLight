@@ -7,7 +7,7 @@ use klight_model::{CueFollow, FunctionId, TimeValue};
 
 use crate::compile::{
     CompiledChaser, CompiledCueList, CompiledMatrix, CompiledMovement, CompiledScene,
-    LogicalChannel, Merge, NO_CHANNEL,
+    LogicalChannel, Merge, StepContent, NO_CHANNEL,
 };
 use crate::music::{beats_to_fixed, MusicClock};
 
@@ -282,8 +282,21 @@ pub struct Ctx<'a> {
 impl Playback {
     pub fn position(&self) -> Option<u32> {
         match &self.kind {
-            PlaybackKind::Chaser(c) => u32::try_from(c.step).ok(),
+            // The step's place in the show, as the screens list it.
+            PlaybackKind::Chaser(c) => c
+                .chaser
+                .steps
+                .get(c.step)
+                .and_then(|s| u32::try_from(s.index).ok()),
             PlaybackKind::CueList(c) => c.current.and_then(|i| u32::try_from(i).ok()),
+            _ => None,
+        }
+    }
+
+    /// Function played by the current step of a chaser.
+    pub fn step_function(&self) -> Option<FunctionId> {
+        match &self.kind {
+            PlaybackKind::Chaser(c) => c.chaser.steps.get(c.step).map(|s| s.source),
             _ => None,
         }
     }
@@ -321,8 +334,10 @@ impl Playback {
                 state.forward = state.chaser.direction == Direction::Forward;
                 state.step_start_us = ctx.now_us;
                 state.step_start_beat = ctx.music.beat_at(ctx.now_us);
-                if let Some(step) = state.chaser.steps.get(first) {
-                    let scene = step.scene.clone();
+                if let Some(StepContent::Scene(scene)) =
+                    state.chaser.steps.get(first).map(|s| &s.content)
+                {
+                    let scene = scene.clone();
                     self.spawn(pool, scene, ctx);
                 }
             }
@@ -516,7 +531,16 @@ impl Playback {
         // Next boundary is computed from the previous one: no drift.
         if beat_based {
             if let TimeValue::Beats(b) = step.hold {
-                state.step_start_beat = state.step_start_beat.saturating_add(beats_to_fixed(b));
+                let len = beats_to_fixed(b).max(1);
+                let late = ctx
+                    .music
+                    .beat_at(ctx.now_us)
+                    .saturating_sub(state.step_start_beat);
+                // Whole steps gone by: normally one. More when the step was
+                // shortened while running (or is shorter than a tick): they
+                // are skipped, staying on the grid.
+                let gone = (late / len).max(1).saturating_mul(len);
+                state.step_start_beat = state.step_start_beat.saturating_add(gone);
             }
             state.step_start_us = ctx.now_us;
         } else {
@@ -525,6 +549,8 @@ impl Playback {
             if ctx.now_us.saturating_sub(state.step_start_us) > hold {
                 state.step_start_us = ctx.now_us;
             }
+            // The next step may count in beats: from the same boundary.
+            state.step_start_beat = ctx.music.beat_at(state.step_start_us);
         }
         match next {
             Some(nx) => {
@@ -532,10 +558,17 @@ impl Playback {
                 let Some(next_step) = state.chaser.steps.get(nx) else {
                     return true;
                 };
-                let scene = next_step.scene.clone();
+                // Effect steps have no instance: they are rendered from the
+                // current step, so they start and stop with it.
+                let scene = match &next_step.content {
+                    StepContent::Scene(s) => Some(s.clone()),
+                    StepContent::Movement(_) | StepContent::Matrix(_) => None,
+                };
                 let fade = next_step.fade.to_micros(ctx.music.bpm());
                 self.release_all(ctx, Some(fade));
-                self.spawn(pool, scene, ctx);
+                if let Some(scene) = scene {
+                    self.spawn(pool, scene, ctx);
+                }
             }
             None => {
                 self.stopping = true;

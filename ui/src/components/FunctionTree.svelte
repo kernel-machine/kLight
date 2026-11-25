@@ -3,6 +3,7 @@
   // Drag functions and folders onto a folder (or a type header) to move them.
   import { app, pref, run, setPref } from '../lib/app.svelte';
   import { FUNCTION_CATEGORIES, foldersIn as foldersOf, functionsIn as functionsOf, nextId } from '../lib/show';
+  import FunctionIcon from './FunctionIcon.svelte';
   import type { Function as Fn, FunctionCategory, FunctionFolder } from '../lib/protocol';
 
   let {
@@ -122,6 +123,7 @@
     onkeydown={(e) => { if (e.key === 'Enter') onselect(f.id); }}
   >
     <span class="dot" class:on={active.has(f.id)}></span>
+    <FunctionIcon {f} />
     <span class="name">{f.name}</span>
     {#if active.has(f.id)}
       <button class="primary small" onclick={(e) => { e.stopPropagation(); run({ type: 'stop_function', id: f.id }); }}>Stop</button>

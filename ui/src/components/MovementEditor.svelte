@@ -3,7 +3,7 @@
   // Movement effect editor: the drawing follows the values while dragging;
   // the engine receives them when the control is released.
   import { app, run } from '../lib/app.svelte';
-  import { formatTime, parseTime } from '../lib/show';
+  import TimeSelect from './TimeSelect.svelte';
   import type { Function as Fn, MovementEffect, MovementShape } from '../lib/protocol';
   import MovementPreview from './MovementPreview.svelte';
 
@@ -92,11 +92,7 @@
         </label>
       {/each}
       <div class="row">
-        <button onclick={() => {
-          const text = window.prompt('Cycle duration (e.g. 2000, 4s, 4 beats)', formatTime(draft!.period));
-          const t = text === null ? null : parseTime(text);
-          if (t) { draft!.period = t; commit(); }
-        }}>Cycle: {formatTime(draft.period)}</button>
+        <TimeSelect label="Cycle" value={draft.period} onchange={(period) => { draft!.period = period; commit(); }} />
         <button onclick={() => { draft!.direction = draft!.direction === 'Forward' ? 'Backward' : 'Forward'; commit(); }}>
           Direction: {draft.direction}
         </button>

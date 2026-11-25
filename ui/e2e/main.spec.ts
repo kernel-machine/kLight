@@ -473,8 +473,8 @@ test('chaser steps are picked in a dialog and can be reordered', async ({ page }
   await page.getByRole('button', { name: 'New chaser', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
-  // Only scenes can be steps.
-  await expect(dialog.getByRole('treeitem', { name: /Chasers/ })).toHaveCount(0);
+  // Chasers and cue lists cannot be steps.
+  await expect(dialog.getByRole('treeitem', { name: /Chasers|Cue lists/ })).toHaveCount(0);
   await dialog.getByLabel('Select Step B').check();
   await dialog.getByLabel('Select Step A').check();
   // Steps are ordered on the chaser screen only.
@@ -485,17 +485,53 @@ test('chaser steps are picked in a dialog and can be reordered', async ({ page }
   await expect(steps).toHaveText(['Step B', 'Step A']);
 
   // Reopened, it appends: a scene can appear more than once.
-  await page.getByRole('button', { name: 'Add scenes…' }).click();
+  await page.getByRole('button', { name: 'Add steps…' }).click();
   await dialog.getByLabel('Select Step C').check();
   await dialog.getByLabel('Select Step B').check();
   await dialog.getByRole('button', { name: 'Add 2 steps' }).click();
   await expect(steps).toHaveText(['Step B', 'Step A', 'Step C', 'Step B']);
 
+  // Step and fade are picked from a list of beat lengths (the fade also 0).
+  const step = page.getByLabel('Step', { exact: true });
+  const fade = page.getByLabel('Fade', { exact: true });
+  const lengths = ['1/32', '1/16', '1/8', '1/4', '1/2'].map((n) => `${n} beat`).concat('1 beat', ['2', '4', '8', '16', '32'].map((n) => `${n} beats`));
+  await expect(step.locator('option')).toHaveText(lengths);
+  await expect(fade.locator('option')).toHaveText(['0', ...lengths]);
+  await expect(step.locator('option:checked')).toHaveText('1 beat');
+  await expect(fade.locator('option:checked')).toHaveText('0');
+  await fade.selectOption({ label: '1/4 beat' });
+  await expect(fade.locator('option:checked')).toHaveText('1/4 beat');
+  await fade.selectOption({ label: '0' });
+
   // Cancel changes nothing.
-  await page.getByRole('button', { name: 'Add scenes…' }).click();
+  await page.getByRole('button', { name: 'Add steps…' }).click();
   await dialog.getByLabel('Select Step A').check();
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
+  await expect(steps).toHaveCount(4);
+
+  // Movement and matrix effects can be steps too; their rows name the type.
+  await page.getByRole('button', { name: 'Add steps…' }).click();
+  await dialog.getByLabel(/^Select Movement \d+$/).first().check();
+  await dialog.getByLabel(/^Select Matrix \d+$/).first().check();
+  await dialog.getByRole('button', { name: 'Add 2 steps' }).click();
+  await expect(steps).toHaveCount(6);
+  await expect(steps.nth(4)).toHaveText(/^Movement \d+$/);
+  const rows = page.getByRole('list', { name: 'Chaser steps' }).locator('li');
+  await expect(rows.nth(4).locator('.type')).toHaveText('Movement');
+  await expect(rows.nth(5).locator('.type')).toHaveText('Matrix');
+  // Without a color of their own, functions show an icon of their type.
+  await expect(rows.nth(0).locator('[data-icon]')).toHaveAttribute('data-icon', 'scene');
+  await expect(rows.nth(4).locator('[data-icon]')).toHaveAttribute('data-icon', 'movement_effect');
+  await expect(rows.nth(5).locator('[data-icon]')).toHaveAttribute('data-icon', 'matrix_effect');
+  await expect(page.getByText('effects start and stop at once')).toBeVisible();
+  // The function tree of the screen shows the same icons.
+  for (const [name, icon] of [[/Step A/, 'scene'], [/^Chaser \d+/, 'chaser'], [/^Movement \d+/, 'movement_effect']] as const) {
+    await expect(page.getByRole('treeitem', { name }).first().locator('[data-icon]')).toHaveAttribute('data-icon', icon);
+  }
+  await page.getByRole('button', { name: 'Remove step 6' }).click();
+  await expect(steps).toHaveCount(5);
+  await page.getByRole('button', { name: 'Remove step 5' }).click();
   await expect(steps).toHaveCount(4);
 
   // Order: arrows, drag and drop, removal.
@@ -527,7 +563,7 @@ test('chaser steps are picked in a dialog and can be reordered', async ({ page }
   await clickTwice('Remove step 1');
   await expect(steps).toHaveText(['Step A', 'Step C']);
   // Back to the previous list for what follows.
-  await page.getByRole('button', { name: 'Add scenes…' }).click();
+  await page.getByRole('button', { name: 'Add steps…' }).click();
   await dialog.getByLabel('Select Step B').check();
   await dialog.getByRole('button', { name: 'Add 1 step' }).click();
   await expect(steps).toHaveText(['Step A', 'Step C', 'Step B']);
@@ -555,4 +591,106 @@ test('chaser steps are picked in a dialog and can be reordered', async ({ page }
   await dialog.getByRole('button', { name: 'Create 1 button' }).click();
   await expect(dialog).toHaveCount(0);
   await expect(page.getByText('Steps (solo)', { exact: true })).toBeVisible();
+
+  // A running chaser lights the button of the scene its step plays.
+  const stepButton = page.locator('.w.button', { hasText: 'Step A' }).last();
+  await expect(stepButton).not.toHaveClass(/\bon\b/);
+  await page.getByRole('button', { name: 'FX', exact: true }).click();
+  await page.getByRole('treeitem', { name: /^Chaser \d+/ }).getByRole('button', { name: 'Start' }).click();
+  await page.getByRole('button', { name: 'Virtual Console' }).click();
+  // It follows the steps: on, off for the other scenes, on again.
+  await expect(stepButton).toHaveClass(/\bon\b/);
+  await expect(stepButton).not.toHaveClass(/\bon\b/);
+  await expect(stepButton).toHaveClass(/\bon\b/);
+  await page.getByRole('button', { name: 'FX', exact: true }).click();
+  await page.getByRole('treeitem', { name: /^Chaser \d+/ }).getByRole('button', { name: 'Stop' }).click();
+  await page.getByRole('button', { name: 'Virtual Console' }).click();
+  await expect(stepButton).not.toHaveClass(/\bon\b/);
+});
+
+test('the function of a virtual console button is picked in a dialog', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByText('Engine: connected')).toBeVisible();
+  await page.getByRole('button', { name: 'Virtual Console' }).click();
+  await page.locator('.toolbar').getByRole('button', { name: 'Button', exact: true }).click();
+  const field = page.getByRole('button', { name: /^Function: / });
+  await expect(field).toHaveAccessibleName('Function: — none —');
+
+  await field.click();
+  const dialog = page.getByRole('dialog');
+  const assign = dialog.getByRole('button', { name: 'Assign' });
+  await expect(assign).toBeDisabled();
+  // One choice only: no group boxes, and picking another replaces the first.
+  await expect(dialog.getByRole('checkbox')).toHaveCount(0);
+  const first = dialog.getByRole('radio', { name: 'Select Step A', exact: true });
+  const second = dialog.getByRole('radio', { name: 'Select Step B', exact: true });
+  await first.check();
+  await second.check();
+  await expect(first).not.toBeChecked();
+  await assign.click();
+  await expect(dialog).toHaveCount(0);
+  await expect(field).toHaveAccessibleName('Function: Step B');
+  // A button with the default label takes the function's name.
+  await expect(page.getByLabel('Label', { exact: true })).toHaveValue('Step B');
+
+  // Reopened, the current function is chosen; Cancel changes nothing.
+  await field.click();
+  await expect(second).toBeChecked();
+  await expect(second).toBeFocused();
+  await first.check();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(field).toHaveAccessibleName('Function: Step B');
+
+  await page.getByRole('button', { name: 'Remove function' }).click();
+  await expect(field).toHaveAccessibleName('Function: — none —');
+
+  // A widget bound to a chaser or an effect edits its times; a scene has none.
+  const choose = async (kind: string) => {
+    await field.click();
+    await dialog.getByRole('radio', { name: new RegExp(`^Select ${kind}`) }).first().check();
+    await assign.click();
+    // The panel follows once the engine has the new function.
+    await expect(field).toHaveAccessibleName(new RegExp(`^Function: ${kind}`));
+  };
+  const step = page.getByLabel('Step', { exact: true });
+  const cycle = page.getByLabel('Cycle', { exact: true });
+  await choose('Step A');
+  await expect(step).toHaveCount(0);
+  await expect(cycle).toHaveCount(0);
+  await choose('Movement');
+  await cycle.selectOption({ label: '16 beats' });
+  await expect(cycle.locator('option:checked')).toHaveText('16 beats');
+  await choose('Matrix');
+  await cycle.selectOption({ label: '1/8 beat' });
+  await expect(cycle.locator('option:checked')).toHaveText('1/8 beat');
+  await choose('Chaser');
+  await expect(cycle).toHaveCount(0);
+  await step.selectOption({ label: '8 beats' });
+  // Two quick edits are both kept.
+  await page.getByLabel('Fade', { exact: true }).selectOption({ label: '2 beats' });
+  // It is the function itself: the FX screen shows the same values.
+  await page.getByRole('button', { name: 'FX', exact: true }).click();
+  await page.getByRole('treeitem', { name: /^Chaser \d+/ }).click();
+  await expect(step.locator('option:checked')).toHaveText('8 beats');
+  await expect(page.getByLabel('Fade', { exact: true }).locator('option:checked')).toHaveText('2 beats');
+  await page.getByRole('treeitem', { name: /^Movement \d+/ }).click();
+  await expect(cycle.locator('option:checked')).toHaveText('16 beats');
+  await page.getByRole('treeitem', { name: /^Matrix \d+/ }).click();
+  await expect(cycle.locator('option:checked')).toHaveText('1/8 beat');
+  await page.getByRole('button', { name: 'Virtual Console' }).click();
+  await page.locator('.w.button').last().click();
+  await page.getByRole('button', { name: 'Remove function' }).click();
+
+  // Regression: a list longer than the dialog squeezed the groups, cutting off
+  // and overlapping their rows, instead of scrolling.
+  await page.setViewportSize({ width: 1280, height: 420 });
+  await field.click();
+  const tree = dialog.getByRole('tree');
+  expect(await tree.evaluate((e) => e.scrollHeight > e.clientHeight)).toBe(true);
+  const cut = await tree.locator('.category').evaluateAll((all) => all.filter((e) => e.scrollHeight > e.clientHeight).length);
+  expect(cut).toBe(0);
+  // The last row can be reached and chosen.
+  const last = dialog.getByRole('radio').last();
+  await last.check();
+  await expect(last).toBeInViewport({ ratio: 1 });
 });

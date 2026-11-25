@@ -4,8 +4,11 @@
 //
 // Call `initCore()` once before using anything else.
 
-import init, { initSync, ShowView, MovementView, MatrixView, linear_to_hex, hex_to_linear, set_scene_channel, max_sequence_colors, color_sequence_json, beat_flash_bits } from './wasm/klight_wasm.js';
+import init, { initSync, ShowView, MovementView, MatrixView, linear_to_hex, hex_to_linear, set_scene_channel, max_sequence_colors, color_sequence_json, beat_flash_bits, widget_light_code, chaser_step_types, beat_choices } from './wasm/klight_wasm.js';
 import type {
+  ActiveFunction,
+  FunctionCategory,
+  WidgetKind,
   ChannelInfo,
   ChannelPreset,
   ChannelRef,
@@ -193,6 +196,21 @@ export function beatLamp(beat: number, bpm: number, beatsPerBar: number): { on: 
   const bits = beat_flash_bits(beat, bpm, Math.max(1, Math.min(255, Math.round(beatsPerBar) || 1)));
   return { on: (bits & 1) !== 0, down: (bits & 2) !== 0 };
 }
+
+/**
+ * Whether a widget is lit (the engine's own rule, also used for controller
+ * LEDs): its function runs, or a step of a running chaser plays it.
+ */
+export function widgetLight(kind: WidgetKind, fn: number | null, blackout: boolean, active: ActiveFunction[]): 'off' | 'on' | 'paused' {
+  const code = widget_light_code(JSON.stringify(kind), fn, blackout, JSON.stringify(active));
+  return code === 1 ? 'on' : code === 2 ? 'paused' : 'off';
+}
+
+/** Types of function a chaser step can play. */
+export const chaserStepTypes = (): FunctionCategory[] => JSON.parse(chaser_step_types()) as FunctionCategory[];
+
+/** Beat lengths offered for chaser steps and fades and effect cycles. */
+export const beatChoices = (): number[] => Array.from(beat_choices());
 
 /** Movement effect geometry (degrees), from the engine's own functions. */
 export class Movement {

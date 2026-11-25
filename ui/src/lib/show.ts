@@ -25,7 +25,9 @@ export const UNIVERSE_SIZE = 512;
 
 // Logic that must match the engine comes from the core (WebAssembly).
 export {
+  beatChoices,
   channelMap,
+  chaserStepTypes,
   colorSequence,
   colorToHex,
   conflictsWith,
@@ -57,7 +59,23 @@ export function nextId(items: Array<{ id: number }>): number {
 }
 
 export function formatTime(t: TimeValue): string {
-  return 'ms' in t ? `${t.ms} ms` : `${t.beats} beats`;
+  return 'ms' in t ? `${t.ms} ms` : formatBeats(t.beats);
+}
+
+/** `1/8 beat`, `1 beat`, `4 beats`: fractions of one over a whole number are written as such. */
+export function formatBeats(beats: number): string {
+  const parts = 1 / beats;
+  if (beats > 0 && beats < 1 && Number.isInteger(parts)) return `1/${parts} beat`;
+  return `${beats} ${beats === 1 ? 'beat' : 'beats'}`;
+}
+
+/**
+ * Index of `t` among `choices` (beat lengths; 0 stands for no time at all),
+ * or -1 when it is not one of them, as for milliseconds in an older show.
+ */
+export function timeChoiceIndex(choices: number[], t: TimeValue): number {
+  if ('beats' in t) return choices.indexOf(t.beats);
+  return t.ms === 0 ? choices.indexOf(0) : -1;
 }
 
 export function parseTime(text: string): TimeValue | null {

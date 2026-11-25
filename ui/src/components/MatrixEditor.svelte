@@ -2,7 +2,8 @@
   import { untrack } from 'svelte';
   import { app, run } from '../lib/app.svelte';
   import { groupLayout } from '../lib/core';
-  import { colorToHex, formatTime, hexToColor, parseTime } from '../lib/show';
+  import { colorToHex, hexToColor } from '../lib/show';
+  import TimeSelect from './TimeSelect.svelte';
   import type { Color, Function as Fn, MatrixAlgorithm, MatrixEffect } from '../lib/protocol';
   import MatrixPreview from './MatrixPreview.svelte';
 
@@ -90,11 +91,7 @@
         <label class="row">Text <input value={a.text} oninput={(e) => setField('text', e.currentTarget.value)} onchange={commit} /></label>
       {/if}
       <div class="row">
-        <button onclick={() => {
-          const text = window.prompt('Cycle duration (e.g. 2000, 4s, 2 beats)', formatTime(draft!.period));
-          const t = text === null ? null : parseTime(text);
-          if (t) { draft!.period = t; commit(); }
-        }}>Cycle: {formatTime(draft.period)}</button>
+        <TimeSelect label="Cycle" value={draft.period} onchange={(period) => { draft!.period = period; commit(); }} />
         <button onclick={() => { draft!.direction = draft!.direction === 'Forward' ? 'Backward' : 'Forward'; commit(); }}>Direction: {draft.direction}</button>
       </div>
     </div>

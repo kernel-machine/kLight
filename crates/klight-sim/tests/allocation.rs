@@ -172,7 +172,32 @@ fn steady_state_tick_does_not_allocate() {
             },
         },
     );
-    for id in [1, 2, 3, 6] {
+    // A second chaser, resting on a matrix step.
+    ok(
+        &mut e,
+        0,
+        Command::SetFunction {
+            function: Function {
+                id: FunctionId(7),
+                folder: None,
+                name: "effect chase".into(),
+                kind: FunctionKind::Chaser(Chaser {
+                    steps: [3, 2]
+                        .map(|id| ChaserStep {
+                            scene: FunctionId(id),
+                            hold: None,
+                            fade: None,
+                        })
+                        .to_vec(),
+                    hold: TimeValue::Ms(100_000),
+                    fade: TimeValue::ZERO,
+                    direction: Direction::Forward,
+                    run_mode: RunMode::Loop,
+                }),
+            },
+        },
+    );
+    for id in [1, 2, 3, 6, 7] {
         ok(&mut e, 0, Command::StartFunction { id: FunctionId(id) });
     }
     ok(

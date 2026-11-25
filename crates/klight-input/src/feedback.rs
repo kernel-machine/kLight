@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use klight_fixtures::qxi::InputProfileDef;
 use klight_model::input_map::{InputMessage, InputTarget, LedBehavior};
-use klight_model::vc::WidgetKind;
+use klight_model::vc::{widget_light, WidgetKind, WidgetLight};
 use klight_model::{Rgb8, RuntimeSnapshot, Show};
 use serde::Deserialize;
 
@@ -513,26 +513,10 @@ pub fn widget_state(
             WidgetState::Inactive
         };
     }
-    let active = |f| rt.state.active.iter().find(|a| a.id == f);
-    match (&w.kind, w.function) {
-        (
-            WidgetKind::Button {
-                action: klight_model::vc::ButtonAction::Blackout,
-            },
-            _,
-        ) => {
-            if rt.state.blackout {
-                WidgetState::Active
-            } else {
-                WidgetState::Inactive
-            }
-        }
-        (_, Some(f)) => match active(f) {
-            Some(a) if a.paused => WidgetState::Armed,
-            Some(_) => WidgetState::Active,
-            None => WidgetState::Inactive,
-        },
-        _ => WidgetState::Inactive,
+    match widget_light(&w.kind, w.function, rt.state.blackout, &rt.state.active) {
+        WidgetLight::Off => WidgetState::Inactive,
+        WidgetLight::On => WidgetState::Active,
+        WidgetLight::Paused => WidgetState::Armed,
     }
 }
 
@@ -828,6 +812,68 @@ colors = [ { value = 0, color = "#000000" }, { value = 5, color = "#ff0000" }, {
         assert_eq!(widget_state(&show, &rt, id(2), 8.5), WidgetState::Inactive);
         // A normal button does not follow the beat.
         assert_eq!(widget_state(&show, &rt, id(3), 8.0), WidgetState::Inactive);
+    }
+
+    #[test]
+    fn chaser_steps_light_the_leds_of_their_scene_buttons() {
+        use klight_model::vc::{ButtonAction, Widget, WidgetProps};
+        use klight_model::{ActiveFunction, FunctionId, WidgetId};
+        let pad = |n| InputMessage::MidiNote {
+            channel: 0,
+            note: n,
+        };
+        let mut show = Show::new("t");
+        for n in [1u32, 2] {
+            show.virtual_console.widgets.push(Widget {
+                id: WidgetId(n),
+                kind: WidgetKind::Button {
+                    action: ButtonAction::Toggle,
+                },
+                props: WidgetProps::default(),
+                function: Some(FunctionId(n)),
+                children: Vec::new(),
+            });
+            show.input_mappings.push(map(
+                n,
+                pad(n as u8),
+                InputTarget::Widget { id: WidgetId(n) },
+            ));
+        }
+        // Chaser 10 (no button of its own) playing function `step`.
+        let playing = |step, paused| ActiveFunction {
+            id: FunctionId(10),
+            level: 1.0,
+            position: Some(0),
+            paused,
+            step_function: Some(FunctionId(step)),
+        };
+        let mut rt = RuntimeSnapshot::default();
+        rt.state.active = vec![playing(1, false)];
+        let p = on_off();
+        let at = FeedbackTime::default();
+        let mut tracker = FeedbackTracker::default();
+        assert_eq!(
+            tracker.update(&show, &rt, "pad", &p, at, 100),
+            vec![vec![0x90, 1, 127], vec![0x90, 2, 0]]
+        );
+        // Next step: the light moves to the other button.
+        rt.state.active = vec![playing(2, false)];
+        assert_eq!(
+            tracker.update(&show, &rt, "pad", &p, at, 100),
+            vec![vec![0x90, 1, 0], vec![0x90, 2, 127]]
+        );
+        // A paused chaser leaves the button armed.
+        rt.state.active = vec![playing(2, true)];
+        assert_eq!(
+            widget_state(&show, &rt, WidgetId(2), 0.0),
+            WidgetState::Armed
+        );
+        // Stopped: everything goes dark.
+        rt.state.active.clear();
+        assert_eq!(
+            tracker.update(&show, &rt, "pad", &p, at, 100),
+            vec![vec![0x90, 2, 0]]
+        );
     }
 
     #[test]

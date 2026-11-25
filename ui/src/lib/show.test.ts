@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { beatFlash } from './beat';
-import { channelMap, colorSequence, frameFromFunctions, frameKind, functionsUnder, functionColor, groupFixtureIds, groupRows, groupWithFixtures, groupsWithoutFixtures, conflictsWith, mappingConflicts, maxSequenceColors, nextFreeAddress, parseTime, hexToColor, colorToHex } from './show';
+import { channelMap, colorSequence, frameFromFunctions, frameKind, functionsUnder, functionColor, groupFixtureIds, groupRows, groupWithFixtures, groupsWithoutFixtures, conflictsWith, mappingConflicts, maxSequenceColors, nextFreeAddress, parseTime, formatBeats, formatTime, beatChoices, timeChoiceIndex, hexToColor, colorToHex } from './show';
 import { sceneValueColor } from './core';
 import type { InputMapping, Show, Widget } from './protocol';
 
@@ -271,5 +271,30 @@ describe('beat flash', () => {
   it('is off without a tempo', () => {
     expect(beatFlash(null, 0).on).toBe(false);
     expect(beatFlash({ ...a, bpm: 0 }, 1000).on).toBe(false);
+  });
+});
+
+describe('times', () => {
+  it('writes short beat lengths as fractions', () => {
+    expect([0.03125, 0.5, 1, 4, 1.5, 0.3].map(formatBeats)).toEqual(['1/32 beat', '1/2 beat', '1 beat', '4 beats', '1.5 beats', '0.3 beats']);
+    expect(formatTime({ beats: 0.125 })).toBe('1/8 beat');
+    expect(formatTime({ ms: 500 })).toBe('500 ms');
+  });
+  it('offers beat lengths from 1/32 to 32, doubling', () => {
+    expect(beatChoices()).toEqual([1 / 32, 1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8, 16, 32]);
+  });
+  it('finds a time among the choices, or not', () => {
+    const steps = beatChoices();
+    const fades = [0, ...steps];
+    expect(timeChoiceIndex(steps, { beats: 1 / 32 })).toBe(0);
+    expect(timeChoiceIndex(steps, { beats: 32 })).toBe(10);
+    expect(timeChoiceIndex(fades, { beats: 1 / 4 })).toBe(4);
+    // No time at all is the fade's "0", in either unit.
+    expect(timeChoiceIndex(fades, { ms: 0 })).toBe(0);
+    expect(timeChoiceIndex(fades, { beats: 0 })).toBe(0);
+    expect(timeChoiceIndex(steps, { ms: 0 })).toBe(-1);
+    // Older shows: milliseconds and other lengths are not in the list.
+    expect(timeChoiceIndex(fades, { ms: 500 })).toBe(-1);
+    expect(timeChoiceIndex(steps, { beats: 3 })).toBe(-1);
   });
 });

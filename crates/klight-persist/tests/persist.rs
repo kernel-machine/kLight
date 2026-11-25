@@ -111,6 +111,7 @@ fn runtime_state_roundtrip() {
             id: FunctionId(3),
             level: 0.5,
             position: Some(2),
+            step_function: None,
             paused: false,
         }],
         ..RuntimeState::default()

@@ -4,7 +4,9 @@ import type { TimeValue } from "./TimeValue";
 
 export type ChaserStep = { 
 /**
- * Scene played by this step.
+ * Function played by this step, of one of the types in
+ * [`FunctionCategory::CHASER_STEPS`]. (Named after scenes, the first of
+ * them, so that existing show files keep loading.)
  */
 scene: FunctionId, 
 /**

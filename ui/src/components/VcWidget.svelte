@@ -4,6 +4,7 @@
   import VcWidget from './VcWidget.svelte';
   import Knob from './Knob.svelte';
   import { createBeatLamp } from '../lib/beatLamp.svelte';
+  import { widgetLight } from '../lib/core';
 
   let {
     widget,
@@ -21,9 +22,10 @@
 
   const p = $derived(widget.props);
   const active = $derived(app.s.runtime?.state.active.find((a) => a.id === widget.function));
-  const isOn = $derived(
-    widget.kind.type === 'button' && widget.kind.action === 'Blackout' ? !!app.s.runtime?.state.blackout : !!active,
-  );
+  const isOn = $derived.by(() => {
+    const state = app.s.runtime?.state;
+    return !!state && widget.kind.type === 'button' && widgetLight(widget.kind, widget.function, state.blackout, state.active) !== 'off';
+  });
   const color = $derived(p.color ? `rgb(${p.color.r},${p.color.g},${p.color.b})` : 'var(--accent)');
   const level = $derived(
     widget.kind.type === 'slider' && widget.kind.mode === 'GrandMaster' ? (app.s.runtime?.state.grand_master ?? 1) : (active?.level ?? 0),

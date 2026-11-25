@@ -443,6 +443,14 @@ fn chaser_at_120_bpm_changes_step_every_500ms() {
             changes.push(t);
         }
         last = Some(step);
+        // The published state names the function the current step plays.
+        let playing = if step.0 > 0 { 1 } else { 2 };
+        let snapshot = e.shared().snapshot.load_full();
+        assert_eq!(
+            snapshot.state.active.first().and_then(|a| a.step_function),
+            Some(FunctionId(playing)),
+            "at {t} µs"
+        );
     }
     assert_eq!(
         changes,
@@ -506,6 +514,116 @@ fn chaser_follows_bpm_change_without_phase_jump() {
     e.tick(750_000);
     assert_eq!(dmx(&e, 2), 255);
     assert_eq!(dmx(&e, 1), 0);
+}
+
+/// Regression: leaving a step timed in milliseconds did not move the beat
+/// origin, so a following step timed in beats was over as soon as it started.
+#[test]
+fn chaser_beat_step_after_a_millisecond_step_lasts_its_beats() {
+    let mut e = engine(test_show());
+    for (id, dimmer) in [(1, DIM1), (2, DIM2)] {
+        ok(
+            &mut e,
+            0,
+            Command::SetFunction {
+                function: scene(id, vec![explicit(fixture(dimmer), intensity(1.0))], 0),
+            },
+        );
+    }
+    let step = |scene, hold| ChaserStep {
+        scene: FunctionId(scene),
+        hold: Some(hold),
+        fade: None,
+    };
+    ok(
+        &mut e,
+        0,
+        Command::SetFunction {
+            function: Function {
+                id: FunctionId(10),
+                folder: None,
+                name: "mixed".into(),
+                kind: FunctionKind::Chaser(Chaser {
+                    steps: vec![step(1, TimeValue::Ms(2000)), step(2, TimeValue::Beats(2.0))],
+                    hold: TimeValue::Beats(1.0),
+                    fade: TimeValue::ZERO,
+                    direction: Direction::Forward,
+                    run_mode: RunMode::Loop,
+                }),
+            },
+        },
+    );
+    ok(&mut e, 0, Command::SetBpm { bpm: 120.0 });
+    ok(&mut e, 0, Command::StartFunction { id: FunctionId(10) });
+    e.tick(2_000_000);
+    assert_eq!((dmx(&e, 1), dmx(&e, 2)), (0, 255));
+    // Two beats at 120 BPM last one second.
+    e.tick(2_990_000);
+    assert_eq!((dmx(&e, 1), dmx(&e, 2)), (0, 255));
+    e.tick(3_000_000);
+    assert_eq!((dmx(&e, 1), dmx(&e, 2)), (255, 0));
+}
+
+/// Regression: shortening the step of a running chaser made it race through
+/// one step per tick until it had "caught up" with the time already gone by.
+#[test]
+fn shortening_the_step_of_a_running_chaser_advances_once() {
+    let mut e = engine(test_show());
+    for (id, dimmer) in [(1, DIM1), (2, DIM2)] {
+        ok(
+            &mut e,
+            0,
+            Command::SetFunction {
+                function: scene(id, vec![explicit(fixture(dimmer), intensity(1.0))], 0),
+            },
+        );
+    }
+    let chaser = |hold| Function {
+        id: FunctionId(10),
+        folder: None,
+        name: "chase".into(),
+        kind: FunctionKind::Chaser(Chaser {
+            steps: [1, 2]
+                .map(|scene| ChaserStep {
+                    scene: FunctionId(scene),
+                    hold: None,
+                    fade: None,
+                })
+                .to_vec(),
+            hold: TimeValue::Beats(hold),
+            fade: TimeValue::ZERO,
+            direction: Direction::Forward,
+            run_mode: RunMode::Loop,
+        }),
+    };
+    ok(
+        &mut e,
+        0,
+        Command::SetFunction {
+            function: chaser(8.0),
+        },
+    );
+    ok(&mut e, 0, Command::SetBpm { bpm: 120.0 });
+    ok(&mut e, 0, Command::StartFunction { id: FunctionId(10) });
+    // 7.2 beats into the first step, it becomes one beat long.
+    e.tick(3_600_000);
+    ok(
+        &mut e,
+        3_600_000,
+        Command::SetFunction {
+            function: chaser(1.0),
+        },
+    );
+    let mut steps = Vec::new();
+    for t in (3_600_000..=4_490_000u64).step_by(10_000) {
+        e.tick(t);
+        let step = (dmx(&e, 1), dmx(&e, 2));
+        if steps.last().is_none_or(|(_, s)| *s != step) {
+            steps.push((t, step));
+        }
+    }
+    // The overdue step ends at once; the next ones stay on the beat grid.
+    assert_eq!(steps, vec![(3_600_000, (0, 255)), (4_000_000, (255, 0))]);
 }
 
 fn cue(number: f32, values: Vec<SceneValue>, fade_ms: u32) -> Cue {
@@ -664,6 +782,287 @@ fn movement_effect_moves_heads_with_phase() {
     e.tick(250_000);
     let b = dmx(&e, 40);
     assert_ne!(a, b);
+}
+
+/// A chaser stepping through a scene (dimmer 1), a movement effect and a
+/// matrix effect, one second each.
+fn chaser_with_effect_steps() -> klight_engine_core::Engine {
+    let mut e = engine(test_show());
+    let function = |id, kind| Function {
+        id: FunctionId(id),
+        folder: None,
+        name: format!("f{id}"),
+        kind,
+    };
+    let movement = FunctionKind::MovementEffect(MovementEffect {
+        group: G_SPOTS,
+        shape: MovementShape::Circle,
+        center_pan: 0.0,
+        center_tilt: 0.0,
+        width: 90.0,
+        height: 90.0,
+        period: TimeValue::Beats(2.0),
+        phase_spread: 180.0,
+        direction: Direction::Forward,
+    });
+    let matrix = FunctionKind::MatrixEffect(MatrixEffect {
+        group: G_PIXELS,
+        algorithm: MatrixAlgorithm::Chase {
+            color: Color::RED,
+            background: Color::BLACK,
+        },
+        period: TimeValue::Ms(400),
+        direction: Direction::Forward,
+    });
+    let chaser = FunctionKind::Chaser(Chaser {
+        steps: [1, 30, 40]
+            .map(|id| ChaserStep {
+                scene: FunctionId(id),
+                hold: None,
+                fade: None,
+            })
+            .to_vec(),
+        hold: TimeValue::Ms(1000),
+        fade: TimeValue::ZERO,
+        direction: Direction::Forward,
+        run_mode: RunMode::Loop,
+    });
+    for f in [
+        scene(1, vec![explicit(fixture(DIM1), intensity(1.0))], 0),
+        function(30, movement),
+        function(40, matrix),
+        function(10, chaser),
+    ] {
+        ok(&mut e, 0, Command::SetFunction { function: f });
+    }
+    ok(&mut e, 0, Command::SetBpm { bpm: 120.0 });
+    ok(&mut e, 0, Command::StartFunction { id: FunctionId(10) });
+    e.tick(0);
+    assert!(e.snapshot().warnings.is_empty());
+    e
+}
+
+fn matrix_reds(e: &klight_engine_core::Engine) -> Vec<u8> {
+    (0..4).map(|h| dmx(e, 100 + h * 3)).collect()
+}
+
+#[test]
+fn chaser_plays_movement_and_matrix_steps() {
+    let mut e = chaser_with_effect_steps();
+    let still = dmx(&e, 40);
+    assert_eq!((dmx(&e, 1), matrix_reds(&e)), (255, vec![0; 4]));
+
+    // Movement step: the head starts its cycle with the step.
+    e.tick(1_000_000);
+    let playing = e
+        .snapshot()
+        .state
+        .active
+        .first()
+        .and_then(|a| a.step_function);
+    assert_eq!(playing, Some(FunctionId(30)));
+    assert_eq!(dmx(&e, 1), 0);
+    let start = dmx(&e, 40);
+    assert_ne!(start, still);
+    e.tick(1_250_000);
+    assert_ne!(dmx(&e, 40), start);
+
+    // Matrix step: from its first column; the movement is over.
+    e.tick(2_000_000);
+    assert_eq!(dmx(&e, 40), still);
+    assert_eq!(matrix_reds(&e), vec![255, 0, 0, 0]);
+    e.tick(2_100_000);
+    assert_eq!(matrix_reds(&e), vec![0, 255, 0, 0]);
+
+    // Back to the scene, then the movement again from its start.
+    e.tick(3_000_000);
+    assert_eq!((dmx(&e, 1), matrix_reds(&e)), (255, vec![0; 4]));
+    e.tick(4_000_000);
+    assert_eq!(dmx(&e, 40), start);
+}
+
+#[test]
+fn stopping_a_chaser_stops_its_effect_step() {
+    let mut e = chaser_with_effect_steps();
+    e.tick(1_000_000);
+    e.tick(2_000_000);
+    assert_eq!(matrix_reds(&e), vec![255, 0, 0, 0]);
+    ok(
+        &mut e,
+        2_000_000,
+        Command::StopFunction { id: FunctionId(10) },
+    );
+    e.tick(2_000_000);
+    assert_eq!(matrix_reds(&e), vec![0; 4]);
+    assert!(e.snapshot().state.active.is_empty());
+}
+
+#[test]
+fn restored_chaser_resumes_its_effect_step() {
+    let mut e = chaser_with_effect_steps();
+    e.tick(1_000_000);
+    e.tick(2_000_000);
+    let state = e.runtime_state();
+    let show = (**e.show()).clone();
+    let mut restored = engine(show);
+    assert!(restored.restore(0, &state).is_empty());
+    restored.tick(0);
+    assert_eq!(
+        (dmx(&restored, 1), matrix_reds(&restored)),
+        (0, vec![255, 0, 0, 0])
+    );
+}
+
+#[test]
+fn editing_an_effect_changes_the_running_chaser_step_at_once() {
+    let mut e = chaser_with_effect_steps();
+    e.tick(1_000_000);
+    e.tick(2_000_000);
+    assert_eq!(matrix_reds(&e), vec![255, 0, 0, 0]);
+    // Edited from the virtual console while its step plays: a cycle half as
+    // long reaches the third column where the old one reached the second.
+    let Some(mut matrix) = e.show().function(FunctionId(40)).cloned() else {
+        panic!("matrix missing");
+    };
+    if let FunctionKind::MatrixEffect(m) = &mut matrix.kind {
+        m.period = TimeValue::Ms(200);
+    }
+    ok(&mut e, 2_000_000, Command::SetFunction { function: matrix });
+    e.tick(2_100_000);
+    assert_eq!(matrix_reds(&e), vec![0, 0, 255, 0]);
+    let playing = e
+        .snapshot()
+        .state
+        .active
+        .first()
+        .and_then(|a| a.step_function);
+    assert_eq!(playing, Some(FunctionId(40)));
+}
+
+#[test]
+fn chasers_and_cue_lists_cannot_be_chaser_steps() {
+    let mut e = chaser_with_effect_steps();
+    let cue_list = Function {
+        id: FunctionId(20),
+        folder: None,
+        name: "cues".into(),
+        kind: FunctionKind::CueList(CueList {
+            cues: vec![cue(1.0, vec![explicit(fixture(DIM2), intensity(1.0))], 0)],
+            move_in_black: false,
+        }),
+    };
+    ok(&mut e, 0, Command::SetFunction { function: cue_list });
+    let Some(mut other) = e.show().function(FunctionId(10)).cloned() else {
+        panic!("chaser missing");
+    };
+    other.id = FunctionId(11);
+    ok(&mut e, 0, Command::SetFunction { function: other });
+    let Some(mut chaser) = e.show().function(FunctionId(10)).cloned() else {
+        panic!("chaser missing");
+    };
+    if let FunctionKind::Chaser(c) = &mut chaser.kind {
+        // Another chaser, a cue list, then the scene.
+        c.steps = [11, 20, 1]
+            .map(|id| ChaserStep {
+                scene: FunctionId(id),
+                hold: None,
+                fade: None,
+            })
+            .to_vec();
+    }
+    ok(&mut e, 0, Command::SetFunction { function: chaser });
+    e.tick(0);
+    let warnings = e.snapshot().warnings;
+    assert_eq!(warnings.len(), 2, "{warnings:?}");
+    assert!(warnings
+        .iter()
+        .all(|w| w.contains("not a playable scene or effect")));
+    // Only the scene is left: the chaser plays it and nothing else.
+    let playing = e
+        .snapshot()
+        .state
+        .active
+        .first()
+        .and_then(|a| a.step_function);
+    assert_eq!(playing, Some(FunctionId(1)));
+    assert_eq!((dmx(&e, 1), dmx(&e, 2)), (255, 0));
+    e.tick(1_000_000);
+    assert_eq!((dmx(&e, 1), dmx(&e, 2)), (255, 0));
+}
+
+/// Regression: every edit reported all the warnings of the show, so one left
+/// standing popped up again (covering the screen) at each unrelated change.
+#[test]
+fn edits_report_only_the_warnings_they_bring() {
+    let mut e = chaser_with_effect_steps();
+    let Some(mut chaser) = e.show().function(FunctionId(10)).cloned() else {
+        panic!("chaser missing");
+    };
+    if let FunctionKind::Chaser(c) = &mut chaser.kind {
+        c.steps.push(ChaserStep {
+            scene: FunctionId(99),
+            hold: None,
+            fade: None,
+        });
+    }
+    let out = ok(
+        &mut e,
+        0,
+        Command::SetFunction {
+            function: chaser.clone(),
+        },
+    );
+    assert_eq!(out.warnings.len(), 1, "{:?}", out.warnings);
+    // An unrelated edit: the warning stands, but it is not news.
+    let out = ok(
+        &mut e,
+        0,
+        Command::SetFunction {
+            function: scene(2, vec![explicit(fixture(DIM2), intensity(1.0))], 0),
+        },
+    );
+    assert!(out.warnings.is_empty(), "{:?}", out.warnings);
+    assert_eq!(e.snapshot().warnings.len(), 1);
+}
+
+/// Regression: the position of a chaser counted only its valid steps, so
+/// after an invalid one the screens highlighted the row before the playing one.
+#[test]
+fn chaser_position_counts_invalid_steps_too() {
+    let mut e = chaser_with_effect_steps();
+    let Some(mut chaser) = e.show().function(FunctionId(10)).cloned() else {
+        panic!("chaser missing");
+    };
+    if let FunctionKind::Chaser(c) = &mut chaser.kind {
+        // A deleted function, then the scene and the movement.
+        c.steps = [99, 1, 30]
+            .map(|id| ChaserStep {
+                scene: FunctionId(id),
+                hold: None,
+                fade: None,
+            })
+            .to_vec();
+    }
+    ok(&mut e, 0, Command::SetFunction { function: chaser });
+    e.tick(0);
+    let at = |e: &klight_engine_core::Engine| {
+        e.snapshot()
+            .state
+            .active
+            .first()
+            .map(|a| (a.position, a.step_function))
+    };
+    assert_eq!(at(&e), Some((Some(1), Some(FunctionId(1)))));
+    e.tick(1_000_000);
+    assert_eq!(at(&e), Some((Some(2), Some(FunctionId(30)))));
+
+    // Restored from that position, it plays the same step.
+    let state = e.runtime_state();
+    let show = (**e.show()).clone();
+    let mut restored = engine(show);
+    restored.restore(1_000_000, &state);
+    restored.tick(1_000_000);
+    assert_eq!(at(&restored), Some((Some(2), Some(FunctionId(30)))));
 }
 
 #[test]
