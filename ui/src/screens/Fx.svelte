@@ -103,7 +103,7 @@
 <div class="fx">
   <section class="panel list">
     <h2>Functions</h2>
-    <FunctionTree {selectedId} onselect={(id) => (selectedId = id)} oncreate={(category, folder) => create(category, folder)} />
+    <FunctionTree {selectedId} onselect={(id) => { selectedId = id; picking = null; }} oncreate={(category, folder) => create(category, folder)} />
     <details class="seq">
       <summary>Color sequence</summary>
     {#if show.groups.length}

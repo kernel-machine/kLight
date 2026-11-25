@@ -445,6 +445,33 @@ test('chaser steps are picked in a dialog and can be reordered', async ({ page }
   await steps.nth(0).dragTo(steps.nth(2));
   await expect(steps).toHaveText(['Step B', 'Step C', 'Step A']);
 
+  // Regression: two clicks before the engine answers carried the same position,
+  // and the second one hit whatever had moved there. Both clicks are sent in the
+  // same task, then the engine is given time to apply what it received.
+  const clickTwice = async (button: string) => {
+    await page.getByRole('button', { name: button, exact: true }).evaluate((b: HTMLButtonElement) => {
+      b.click();
+      b.click();
+    });
+    await page.waitForTimeout(500);
+  };
+  await clickTwice('Move step 3 up');
+  await expect(steps).toHaveText(['Step B', 'Step A', 'Step C']);
+  await expect(page.getByText('The steps changed in the meantime').first()).toBeVisible();
+  await clickTwice('Remove step 1');
+  await expect(steps).toHaveText(['Step A', 'Step C']);
+  // Back to the previous list for what follows.
+  await page.getByRole('button', { name: 'Add scenes…' }).click();
+  await dialog.getByLabel('Select Step B').check();
+  await dialog.getByRole('button', { name: 'Add 1 step' }).click();
+  await expect(steps).toHaveText(['Step A', 'Step C', 'Step B']);
+  await page.getByRole('button', { name: 'Move step 3 up' }).click();
+  await expect(steps).toHaveText(['Step A', 'Step B', 'Step C']);
+  await page.getByRole('button', { name: 'Move step 1 down' }).click();
+  await expect(steps).toHaveText(['Step B', 'Step A', 'Step C']);
+  await page.getByRole('button', { name: 'Move step 3 up' }).click();
+  await expect(steps).toHaveText(['Step B', 'Step C', 'Step A']);
+
   // The order is the engine's, not just the page's.
   await page.reload();
   await page.getByRole('button', { name: 'FX', exact: true }).click();
