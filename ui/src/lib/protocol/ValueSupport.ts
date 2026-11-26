@@ -5,10 +5,26 @@
  */
 export type ValueSupport = { intensity: boolean, color: boolean, 
 /**
- * Pan and tilt (also fans).
+ * Pan or tilt, in either of the two ways below.
  */
-position: boolean, gobo: boolean, prism: boolean, zoom: boolean, 
+position: boolean, 
 /**
- * Strobe and shutter.
+ * Pan and tilt in degrees (also fans).
  */
-strobe: boolean, };
+position_degrees: boolean, 
+/**
+ * Pan or tilt without a range in degrees: plain DMX values.
+ */
+position_dmx: boolean, gobo: boolean, prism: boolean, zoom: boolean, 
+/**
+ * A strobe or shutter channel, in either of the two ways below.
+ */
+strobe: boolean, 
+/**
+ * A strobe in hertz.
+ */
+strobe_hz: boolean, 
+/**
+ * A shutter without frequencies: plain DMX values.
+ */
+strobe_dmx: boolean, };

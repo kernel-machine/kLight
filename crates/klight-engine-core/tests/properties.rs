@@ -45,7 +45,7 @@ proptest! {
         let n = chans.len();
         let mut merged = vec![0u16; n];
         let mut frames = vec![[0u8; 512]];
-        merge(&chans, [&a, &b, &c], u16::MAX, false, &mut merged, &mut frames);
+        merge(&chans, [&a, &b, &c], &Layer::default(), u16::MAX, false, &mut merged, &mut frames);
         for (ch, lc) in chans.iter().enumerate() {
             if lc.merge == Merge::Htp {
                 for l in [&a, &b, &c] {
@@ -73,11 +73,11 @@ proptest! {
         let empty = Layer { values: vec![0; n], set: vec![false; n] };
         let mut merged = vec![0u16; n];
         let mut f_black = vec![[0u8; 512]];
-        merge(&chans, [&full, &empty, &empty], gm, true, &mut merged, &mut f_black);
+        merge(&chans, [&full, &empty, &empty], &Layer::default(), gm, true, &mut merged, &mut f_black);
         let mut f_gm0 = vec![[0u8; 512]];
-        merge(&chans, [&full, &empty, &empty], 0, false, &mut merged, &mut f_gm0);
+        merge(&chans, [&full, &empty, &empty], &Layer::default(), 0, false, &mut merged, &mut f_gm0);
         let mut f_gm1 = vec![[0u8; 512]];
-        merge(&chans, [&full, &empty, &empty], u16::MAX, false, &mut merged, &mut f_gm1);
+        merge(&chans, [&full, &empty, &empty], &Layer::default(), u16::MAX, false, &mut merged, &mut f_gm1);
         for lc in &chans {
             if lc.coarse == NO_ADDR { continue; }
             let a = usize::from(lc.coarse);

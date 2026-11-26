@@ -28,6 +28,7 @@ use crate::music::MusicClock;
 use crate::playback::{
     scale, ChaserState, Ctx, CueState, Layer, Playback, PlaybackKind, SceneInstance,
 };
+use crate::scene_edit::add_scene_members;
 use crate::shared::{EngineShared, UniverseOutput};
 
 #[derive(Debug, Clone)]
@@ -48,6 +49,10 @@ impl Default for EngineConfig {
 
 type EditResult = Result<Vec<String>, CommandError>;
 
+/// How long a preview lasts after the last time it was sent: an editor that
+/// goes away (closed page, lost connection) leaves nothing on the lights.
+pub const PREVIEW_HOLD_US: u64 = 3_000_000;
+
 #[derive(Debug)]
 struct Runtime {
     mode: OperatingMode,
@@ -61,6 +66,12 @@ struct Runtime {
     mix: Layer,
     programmer: Layer,
     programmer_entries: Vec<ProgrammerEntry>,
+    /// Values an editor is trying out, on top of the other layers.
+    preview: Layer,
+    preview_values: Vec<SceneValue>,
+    preview_members: Vec<Target>,
+    /// When the preview ends unless renewed; `None` without one.
+    preview_until: Option<u64>,
     /// Raw Simple Desk channels per universe (parallel to `compiled.universes`).
     raw: Vec<[u16; UNIVERSE_SIZE]>,
     merged: Vec<u16>,
@@ -123,6 +134,10 @@ impl Engine {
                 mix: Layer::default(),
                 programmer: Layer::default(),
                 programmer_entries: Vec::new(),
+                preview: Layer::default(),
+                preview_values: Vec::new(),
+                preview_members: Vec::new(),
+                preview_until: None,
                 raw: Vec::new(),
                 merged: Vec::new(),
                 music: MusicClock::new(120.0),
@@ -235,6 +250,7 @@ impl Engine {
         self.rt.effects.resize(n);
         self.rt.mix.resize(n);
         self.rt.programmer.resize(n);
+        self.rt.preview.resize(n);
         self.rt.merged.resize(n, 0);
 
         // Outputs: keep existing slots for universes that still exist.
@@ -321,6 +337,7 @@ impl Engine {
             self.rt.playbacks.push(p);
         }
         let _ = self.rebuild_programmer();
+        self.rebuild_preview();
         self.shared.show.store(self.show.clone());
         self.shared.show_seq.fetch_add(1, Ordering::Relaxed);
         self.dirty = true;
@@ -354,6 +371,30 @@ impl Engine {
         warnings
     }
 
+    fn rebuild_preview(&mut self) {
+        self.rt.preview.clear();
+        if self.rt.preview_until.is_none() {
+            return;
+        }
+        // What cannot be played is left out: the editor learns of it when the
+        // values are stored.
+        let (entries, _) = self.compiled.resolve_values(
+            &self.show,
+            &self.rt.preview_values,
+            &self.rt.preview_members,
+        );
+        for e in entries {
+            self.rt
+                .preview
+                .write(e.channel as usize, Merge::Ltp, e.value);
+        }
+    }
+
+    fn end_preview(&mut self) {
+        self.rt.preview_until = None;
+        self.rt.preview.clear();
+    }
+
     // --------------------------------------------------------------- commands
 
     fn control_key(cmd: &Command) -> Option<ControlKey> {
@@ -378,8 +419,13 @@ impl Engine {
     /// return a typed error and leave the state unchanged.
     pub fn apply(&mut self, now_us: u64, env: CommandEnvelope) -> CommandResult {
         self.now_us = self.now_us.max(now_us);
+        // A preview is no part of the state clients see or a restart restores.
+        let preview = matches!(
+            env.command,
+            Command::SetPreview { .. } | Command::ClearPreview
+        );
         let result = self.apply_inner(&env.source, env.command);
-        if result.is_ok() {
+        if result.is_ok() && !preview {
             self.dirty = true;
         }
         CommandResult {
@@ -508,6 +554,10 @@ impl Engine {
                     .map(|f| f.id)
                     .collect();
                 s.fixtures.retain(|f| f.universe != id);
+                leave_scenes(s, |t| match t {
+                    Target::Fixture { id } => removed.contains(id),
+                    _ => false,
+                });
                 for g in &mut s.groups {
                     g.members.retain(|m| !removed.contains(&m.fixture));
                 }
@@ -604,6 +654,7 @@ impl Engine {
                     return Err(CommandError::not_found(id));
                 }
                 s.fixtures.retain(|f| f.id != id);
+                leave_scenes(s, |t| *t == Target::Fixture { id });
                 for g in &mut s.groups {
                     g.members.retain(|m| m.fixture != id);
                 }
@@ -630,6 +681,7 @@ impl Engine {
                     return Err(CommandError::not_found(id));
                 }
                 s.groups.retain(|g| g.id != id);
+                leave_scenes(s, |t| *t == Target::Group { id });
                 Ok(Vec::new())
             }),
             Command::SetPalette { palette } => {
@@ -769,13 +821,15 @@ impl Engine {
                     let id = id.unwrap_or_else(|| s.next_function_id());
                     // Overwriting a scene keeps it in its folder.
                     let folder = s.function(id).and_then(|f| f.folder);
+                    let lights: Vec<Target> = values.iter().map(|v| v.target).collect();
+                    let scene = Scene {
+                        values,
+                        ..Scene::default()
+                    };
                     let function = Function {
                         id,
                         name,
-                        kind: FunctionKind::Scene(Scene {
-                            values,
-                            ..Scene::default()
-                        }),
+                        kind: FunctionKind::Scene(add_scene_members(s, &scene, &lights)),
                         folder,
                     };
                     match s.functions.iter_mut().find(|f| f.id == id) {
@@ -807,6 +861,8 @@ impl Engine {
                     for e in entries.iter().filter(|e| kind.accepts(e.value.kind())) {
                         match e.target {
                             Target::Fixture { id } | Target::Head { id, .. } => push(id, &e.value),
+                            // Never in the programmer.
+                            Target::Scene => {}
                             Target::Group { id } => {
                                 // Per fixture the concrete value (a fan becomes each
                                 // head's own position); the group value is the fallback.
@@ -1164,6 +1220,11 @@ impl Engine {
                         "service channels are controlled by dedicated actions",
                     ));
                 }
+                if target == Target::Scene {
+                    return Err(CommandError::invalid(
+                        "only the values of a scene can mean the whole scene",
+                    ));
+                }
                 if self.compiled.expand_target(&self.show, &target).is_empty() {
                     return Err(CommandError::not_found(format!("target {target:?}")));
                 }
@@ -1248,7 +1309,20 @@ impl Engine {
                     }
                 }
                 self.rt.mode = mode;
+                if mode == OperatingMode::Show {
+                    self.end_preview();
+                }
             }
+            Command::SetPreview { values, members } => {
+                if self.rt.mode == OperatingMode::Show {
+                    return Err(CommandError::ShowModeLocked);
+                }
+                self.rt.preview_values = values;
+                self.rt.preview_members = members;
+                self.rt.preview_until = Some(self.now_us.saturating_add(PREVIEW_HOLD_US));
+                self.rebuild_preview();
+            }
+            Command::ClearPreview => self.end_preview(),
             _ => return Err(CommandError::invalid("unsupported command")),
         }
         Ok(Vec::new())
@@ -1263,6 +1337,10 @@ impl Engine {
         let now = self.now_us;
         if self.rt.music.update(now) {
             self.dirty = true;
+        }
+
+        if self.rt.preview_until.is_some_and(|until| now >= until) {
+            self.end_preview();
         }
 
         // 1. Advance playbacks.
@@ -1346,6 +1424,7 @@ impl Engine {
         merge(
             channels,
             [&self.rt.base, &self.rt.effects, &self.rt.programmer],
+            &self.rt.preview,
             f32_to16(self.rt.grand_master),
             self.rt.blackout,
             &mut self.rt.merged,
@@ -1505,8 +1584,23 @@ fn check_function(f: &Function) -> Result<(), CommandError> {
         Ok(())
     };
     match &f.kind {
-        FunctionKind::Scene(s) => check_values(&s.values),
-        FunctionKind::CueList(c) => c.cues.iter().try_for_each(|cue| check_values(&cue.values)),
+        FunctionKind::Scene(s) => {
+            let light = |t: &Target| matches!(t, Target::Fixture { .. } | Target::Group { .. });
+            if !s.members.iter().all(light) {
+                return Err(CommandError::invalid(
+                    "the lights of a scene are groups and fixtures",
+                ));
+            }
+            check_values(&s.values)
+        }
+        FunctionKind::CueList(c) => c.cues.iter().try_for_each(|cue| {
+            if cue.values.iter().any(|v| v.target == Target::Scene) {
+                return Err(CommandError::invalid(
+                    "only the values of a scene can mean the whole scene",
+                ));
+            }
+            check_values(&cue.values)
+        }),
         FunctionKind::Chaser(c) => {
             if c.steps.iter().any(|s| s.scene == f.id) {
                 return Err(CommandError::invalid("chaser cannot reference itself"));
@@ -1517,6 +1611,15 @@ fn check_function(f: &Function) -> Result<(), CommandError> {
         FunctionKind::Collection(_)
         | FunctionKind::MovementEffect(_)
         | FunctionKind::MatrixEffect(_) => Ok(()),
+    }
+}
+
+/// Takes the lights `gone` picks out of every scene.
+fn leave_scenes(show: &mut Show, gone: impl Fn(&Target) -> bool) {
+    for f in &mut show.functions {
+        if let FunctionKind::Scene(s) = &mut f.kind {
+            s.members.retain(|m| !gone(m));
+        }
     }
 }
 
@@ -1553,10 +1656,12 @@ pub fn apply_raw_channels(
 }
 
 /// Layer merge: HTP for intensity, LTP (top layer wins) for everything
-/// else; then grand master and blackout; then virtual dimmers.
+/// else; what `over` sets replaces the result; then grand master and blackout;
+/// then virtual dimmers.
 pub fn merge(
     channels: &[LogicalChannel],
     layers: [&Layer; 3],
+    over: &Layer,
     grand_master: u16,
     blackout: bool,
     merged: &mut [u16],
@@ -1575,6 +1680,7 @@ pub fn merge(
                 .find_map(|l| l.get(ch))
                 .unwrap_or(lc.default),
         };
+        let v = over.get(ch).unwrap_or(v);
         *out = if lc.role.is_intensity() {
             if blackout {
                 0

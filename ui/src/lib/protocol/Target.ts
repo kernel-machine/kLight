@@ -2,4 +2,4 @@
 import type { FixtureId } from "./FixtureId";
 import type { GroupId } from "./GroupId";
 
-export type Target = { "type": "fixture", id: FixtureId, } | { "type": "head", id: FixtureId, head: number, } | { "type": "group", id: GroupId, };
+export type Target = { "type": "fixture", id: FixtureId, } | { "type": "head", id: FixtureId, head: number, } | { "type": "group", id: GroupId, } | { "type": "scene" };

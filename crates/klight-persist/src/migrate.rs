@@ -12,7 +12,7 @@ use crate::PersistError;
 type Migration = fn(Value) -> Result<Value, String>;
 
 /// `MIGRATIONS[i]` migrates from version `i` to `i + 1`.
-const MIGRATIONS: &[Migration] = &[v0_to_v1, v1_to_v2, v2_to_v3];
+const MIGRATIONS: &[Migration] = &[v0_to_v1, v1_to_v2, v2_to_v3, v3_to_v4];
 
 /// Version 0: pre-release files without `schema_version` and with
 /// `"cues"`-less settings. Adds the version field and default settings.
@@ -41,6 +41,69 @@ fn v2_to_v3(mut v: Value) -> Result<Value, String> {
     let obj = v.as_object_mut().ok_or("show is not a JSON object")?;
     obj.insert("schema_version".into(), Value::from(3));
     Ok(v)
+}
+
+/// Version 4 gives scenes the list of their lights: the groups their values
+/// name, and the fixtures named that are in none of those groups.
+fn v3_to_v4(mut v: Value) -> Result<Value, String> {
+    let obj = v.as_object_mut().ok_or("show is not a JSON object")?;
+    let groups = obj.get("groups").cloned().unwrap_or(Value::Null);
+    let functions = obj.get_mut("functions").and_then(Value::as_array_mut);
+    for function in functions.into_iter().flatten() {
+        let Some(kind) = function.get_mut("kind").and_then(Value::as_object_mut) else {
+            continue;
+        };
+        if kind.get("type").and_then(Value::as_str) != Some("scene") {
+            continue;
+        }
+        let members = lights_of(kind.get("values"), &groups);
+        kind.insert("members".into(), Value::Array(members));
+    }
+    obj.insert("schema_version".into(), Value::from(4));
+    Ok(v)
+}
+
+fn lights_of(values: Option<&Value>, groups: &Value) -> Vec<Value> {
+    let targets: Vec<(&str, u64)> = values
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|value| {
+            let target = value.get("target")?;
+            Some((target.get("type")?.as_str()?, target.get("id")?.as_u64()?))
+        })
+        .collect();
+    let mut named_groups: Vec<u64> = Vec::new();
+    for &(kind, id) in &targets {
+        if kind == "group" && !named_groups.contains(&id) {
+            named_groups.push(id);
+        }
+    }
+    let covered: Vec<u64> = groups
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|g| {
+            g.get("id")
+                .and_then(Value::as_u64)
+                .is_some_and(|id| named_groups.contains(&id))
+        })
+        .filter_map(|g| g.get("members")?.as_array())
+        .flatten()
+        .filter_map(|m| m.get("fixture")?.as_u64())
+        .collect();
+    let mut fixtures: Vec<u64> = Vec::new();
+    for &(kind, id) in &targets {
+        if kind != "group" && !covered.contains(&id) && !fixtures.contains(&id) {
+            fixtures.push(id);
+        }
+    }
+    let light = |kind: &str, id: u64| serde_json::json!({ "type": kind, "id": id });
+    named_groups
+        .into_iter()
+        .map(|id| light("group", id))
+        .chain(fixtures.into_iter().map(|id| light("fixture", id)))
+        .collect()
 }
 
 /// Schema version of a raw show (0 when the field is missing).

@@ -208,6 +208,20 @@ impl ChannelDef {
     pub fn is_service(&self) -> bool {
         self.attribute == Attribute::Maintenance
     }
+
+    /// Whether a strobe frequency means something on this channel: some range
+    /// tells its hertz.
+    pub fn gives_strobe_hz(&self) -> bool {
+        self.capabilities.iter().any(|c| {
+            matches!(
+                c.kind,
+                CapabilityKind::Strobe {
+                    hz_min: Some(_),
+                    hz_max: Some(_)
+                }
+            )
+        })
+    }
 }
 
 /// Physical properties (ranges used for unit conversions).

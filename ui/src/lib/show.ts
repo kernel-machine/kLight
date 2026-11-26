@@ -59,6 +59,15 @@ export function nextId(items: Array<{ id: number }>): number {
   return items.reduce((m, x) => Math.max(m, x.id), 0) + 1;
 }
 
+/** Name for a copy: `X copy`, then `X copy 2`…, the first one not taken. */
+export function copyName(name: string, taken: string[]): string {
+  const base = `${name.replace(/ copy( \d+)?$/, '')} copy`;
+  const used = new Set(taken);
+  let free = base;
+  for (let n = 2; used.has(free); n++) free = `${base} ${n}`;
+  return free;
+}
+
 export function formatTime(t: TimeValue): string {
   return 'ms' in t ? `${t.ms} ms` : formatBeats(t.beats);
 }
@@ -109,7 +118,8 @@ export function describeValue(v: AttributeValue): string {
     case 'strobe':
       return v.strobe.type === 'Hz' ? `Strobe ${v.strobe.hz} Hz` : `Shutter ${v.strobe.type}`;
     case 'raw':
-      return `${v.attribute} = ${v.value}`;
+      if (v.attribute === 'Pan' || v.attribute === 'Tilt') return `${v.attribute} DMX ${v.value}`;
+      return v.attribute === 'Shutter' ? `Strobe DMX ${v.value}` : `${v.attribute} = ${v.value}`;
   }
 }
 
@@ -257,6 +267,8 @@ export function describeTarget(show: Show, t: Target): string {
       return `${show.fixtures.find((f) => f.id === t.id)?.name ?? t.id} head ${t.head + 1}`;
     case 'group':
       return show.groups.find((g) => g.id === t.id)?.name ?? `Group ${t.id}`;
+    case 'scene':
+      return 'All lights';
   }
 }
 

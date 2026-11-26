@@ -377,5 +377,8 @@ mod tests {
             mode: klight_model::OperatingMode::Design,
             pin: None
         }));
+        // Trying values out belongs to editing the show.
+        assert!(!Permission::PlaybackOnly.allows(&Command::ClearPreview));
+        assert!(Permission::Full.allows(&Command::ClearPreview));
     }
 }

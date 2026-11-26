@@ -99,7 +99,7 @@ describe('what a scene can offer for some fixtures (from the core)', () => {
 
   it('lists the kinds of values the fixtures can act on', async () => {
     const { valueSupport } = await import('./core');
-    expect(valueSupport(show, [1])).toEqual({ intensity: true, color: true, position: true, gobo: false, prism: false, zoom: false, strobe: false });
+    expect(valueSupport(show, [1])).toEqual({ intensity: true, color: true, position: true, position_degrees: true, position_dmx: false, gobo: false, prism: false, zoom: false, strobe: false, strobe_hz: false, strobe_dmx: false });
     expect(valueSupport(show, [])).toMatchObject({ intensity: false, color: false, position: false });
   });
 });

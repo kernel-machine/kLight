@@ -234,9 +234,17 @@ consoles (grandMA, MagicQ), with a simple interface.
   recomputed from the intention; scenes and cues stay valid.
 
 ### 7.5 Functions (FX screen)
-- `Scene` — per group or fixture: intentions, palette references or explicit
+- `Scene` — a list of **lights** (groups and fixtures) and, for all of them,
+  one group or single fixtures: intentions, palette references or explicit
   values; fade in/out, delays and fades **distributed over the group** (e.g.
   heads lighting up one after the other), different times per attribute.
+  A group stays linked: fixtures added to it later are in the scene too. A
+  value given to **all lights** covers those added later as well, unless the
+  scene says otherwise: then, when lights are added, such values stay with the
+  lights it had. A fan or a spread over all lights follows their order in the
+  list, each head once. Removing a light removes the values that were only its
+  own. Lights named by values from elsewhere (the programmer) join the list.
+  Only scene values can target all lights, not cues or the programmer.
   Single channels of a fixture can also be **set by hand** (one DMX byte, or a
   virtual dimmer): they are named by attribute, not by address, so they stay
   valid when the fixture model changes (a channel the new model lacks is
@@ -341,7 +349,13 @@ operator releases it.
 1. Base cues / scenes / chasers
 2. Effects (EFX, matrices)
 3. Programmer (Simple Desk, manual changes)
-4. Grand master and blackout
+4. Preview: scene values an editor is trying out (`SetPreview`), replacing what
+   the layers below give those channels. It is not part of the show or of the
+   saved state, only exists in Design mode, and ends by itself unless sent again
+   within 3 s, so that an editor that goes away leaves nothing on the lights.
+5. Grand master and blackout
+
+Raw Simple Desk channels stay above the preview.
 
 ### 8.3 Merge
 - Intensity: **HTP**. Other attributes: **LTP** with per-layer priority.
@@ -505,6 +519,18 @@ Always visible:
 - **Blackout** and **grand master** always reachable.
 - **DMX monitor** (channels per universe) that can be opened from any screen.
 
+The scene editor starts and stops its scene, and can preview it on the lights
+(off until asked for), following the controls and channel faders as they move.
+Undo and redo of show changes are always at hand in Design mode.
+
+In the scene editor the lights are added from a dialog that lists them as the
+patch screen does. A new value goes to all lights, or to one chosen group or
+chosen fixtures.
+
+Pan, tilt and strobe are given in degrees and hertz where the definitions
+tell the range or the frequencies, and as plain DMX values (0–255) where they
+do not; with lights of both kinds the operator chooses.
+
 The scene editor offers only the values the selected fixtures can take, and
 for fixtures that only have a color wheel its slots instead of a free color
 (core `value_support` and `color_choices`, which follow the engine's rules).
@@ -514,7 +540,7 @@ Known limit: the editor decides per fixture while the engine decides per head
 (a fixture with an RGB head and a wheel head counts as mixing), and it ignores
 color calibration (only offered for fixtures that mix colors).
 Below the values, one horizontally scrolling row of faders shows every channel
-of the fixtures the scene drives (core `scene_channels`), as in the Simple Desk;
+of the fixtures of the scene (core `scene_channels`), as in the Simple Desk;
 moving one sets that channel by hand when the fader is let go (one undo step
 per move), and × releases it.
 

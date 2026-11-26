@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE FixtureDefinition>
+<FixtureDefinition xmlns="http://www.qlcplus.org/FixtureDefinition">
+ <Creator><Name>kLight test</Name><Version>1</Version><Author>kLight</Author></Creator>
+ <Manufacturer>Test</Manufacturer>
+ <Model>Basic Head</Model>
+ <Type>Moving Head</Type>
+ <!-- A definition that gives no physical data: no range in degrees, no
+      strobe frequencies. -->
+ <Channel Name="Pan" Preset="PositionPan"/>
+ <Channel Name="Tilt" Preset="PositionTilt"/>
+ <Channel Name="Strobe">
+  <Group Byte="0">Shutter</Group>
+  <Capability Min="0" Max="9">Open</Capability>
+  <Capability Min="10" Max="255">Strobe from slow to fast</Capability>
+ </Channel>
+ <Channel Name="Dimmer" Preset="IntensityMasterDimmer"/>
+ <Mode Name="Basic">
+  <Channel Number="0">Pan</Channel>
+  <Channel Number="1">Tilt</Channel>
+  <Channel Number="2">Strobe</Channel>
+  <Channel Number="3">Dimmer</Channel>
+ </Mode>
+</FixtureDefinition>

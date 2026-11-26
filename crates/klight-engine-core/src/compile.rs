@@ -2,7 +2,7 @@
 //! tick loop. Compilation happens on show changes (command path), never in
 //! the steady-state tick.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use klight_fixtures::{profile::to16, Converter, FixtureProfile, Resolved};
@@ -459,7 +459,29 @@ impl CompiledShow {
                     })
                     .collect()
             }
+            // Resolved by `resolve_values`, which knows the scene.
+            Target::Scene => Vec::new(),
         }
+    }
+
+    /// The heads of all the lights of a scene, each once, in member order:
+    /// what [`Target::Scene`] means.
+    fn expand_members(&self, show: &Show, members: &[Target]) -> Vec<(u32, u16, u16, u16)> {
+        let mut seen = BTreeSet::new();
+        let mut heads = Vec::new();
+        for m in members {
+            for (fi, head, _, _) in self.expand_target(show, m) {
+                if seen.insert((fi, head)) {
+                    heads.push((fi, head));
+                }
+            }
+        }
+        let len = u16::try_from(heads.len()).unwrap_or(u16::MAX);
+        heads
+            .into_iter()
+            .zip(0u16..)
+            .map(|((fi, head), order)| (fi, head, order, len))
+            .collect()
     }
 
     /// Resolves one intention for one head into (channel, value) pairs.
@@ -596,12 +618,14 @@ impl CompiledShow {
     }
 
     /// Resolves scene-like values (explicit, palette references or channels
-    /// set by hand), in order: the last one wins on every channel. Returns the
-    /// entries and the warnings.
+    /// set by hand), in order: the last one wins on every channel. `members`
+    /// are the lights of the scene (none for cues). Returns the entries and the
+    /// warnings.
     pub fn resolve_values(
         &self,
         show: &Show,
         values: &[SceneValue],
+        members: &[Target],
     ) -> (Vec<SceneEntry>, Vec<String>) {
         let mut entries: Vec<SceneEntry> = Vec::new();
         let mut index: BTreeMap<u32, usize> = BTreeMap::new();
@@ -618,8 +642,14 @@ impl CompiledShow {
                 }
                 continue;
             }
-            let heads = self.expand_target(show, &sv.target);
-            if heads.is_empty() {
+            let whole = sv.target == Target::Scene;
+            let heads = if whole {
+                self.expand_members(show, members)
+            } else {
+                self.expand_target(show, &sv.target)
+            };
+            // A value of the whole scene may be waiting for its lights.
+            if heads.is_empty() && !whole {
                 warnings.push(format!("target {:?} resolves to no fixture", sv.target));
             }
             for (fi, head, order, len) in heads {
@@ -684,7 +714,7 @@ impl CompiledShow {
     }
 
     pub fn compile_scene(&mut self, show: &Show, scene: &Scene) -> CompiledScene {
-        let (entries, warnings) = self.resolve_values(show, &scene.values);
+        let (entries, warnings) = self.resolve_values(show, &scene.values, &scene.members);
         for w in warnings {
             self.warn(w);
         }
@@ -814,8 +844,7 @@ fn compile_cue_list(show: &Show, c: &mut CompiledShow, cl: &CueList) -> Compiled
             let scene = Scene {
                 values: cue.values.clone(),
                 timing: cue.timing,
-                spread: Spread::None,
-                attribute_timing: Vec::new(),
+                ..Scene::default()
             };
             c.compile_scene(show, &scene)
         })

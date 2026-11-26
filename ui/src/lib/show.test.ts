@@ -79,6 +79,7 @@ describe('misc helpers', () => {
 });
 
 import { moveInGrid, resizeGrid } from './show';
+import { copyName } from './show';
 
 describe('group grid', () => {
   const g = {
@@ -296,5 +297,17 @@ describe('times', () => {
     // Older shows: milliseconds and other lengths are not in the list.
     expect(timeChoiceIndex(fades, { ms: 500 })).toBe(-1);
     expect(timeChoiceIndex(steps, { beats: 3 })).toBe(-1);
+  });
+});
+
+describe('names of copies', () => {
+  it('takes the first one free, without piling up "copy"', () => {
+    expect(copyName('Intro', ['Intro'])).toBe('Intro copy');
+    expect(copyName('Intro', ['Intro', 'Intro copy'])).toBe('Intro copy 2');
+    expect(copyName('Intro copy', ['Intro', 'Intro copy'])).toBe('Intro copy 2');
+    expect(copyName('Intro copy 2', ['Intro copy', 'Intro copy 2'])).toBe('Intro copy 3');
+    // A gap is filled; "copy" inside a name is part of it.
+    expect(copyName('Intro copy 3', ['Intro copy 3'])).toBe('Intro copy');
+    expect(copyName('Copy room', ['Copy room'])).toBe('Copy room copy');
   });
 });

@@ -3,15 +3,16 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use klight_model::inspect::{ChannelOrigin, SceneChannel, SceneFixtureChannels};
-use klight_model::{Attribute, ChannelRef, FunctionId, Show};
+use klight_model::inspect::{scene_lights, ChannelOrigin, SceneChannel, SceneFixtureChannels};
+use klight_model::{Attribute, ChannelRef, FunctionId, FunctionKind, Show};
 
 use crate::compile::{
     CompiledFixture, CompiledFunction, CompiledShow, SceneEntry, COARSE_BYTE, FINE_BYTE, NO_ADDR,
     NO_CHANNEL,
 };
 
-/// All the channels of the fixtures a scene drives, with their target values,
+/// All the channels of the fixtures of a scene (its lights, and any other its
+/// values drive), with their target values,
 /// sorted by universe and address. `None` if the function is not a compiled
 /// scene.
 pub fn scene_channels(
@@ -24,9 +25,18 @@ pub fn scene_channels(
     };
     let entries: BTreeMap<u32, &SceneEntry> =
         scene.entries.iter().map(|e| (e.channel, e)).collect();
+    let FunctionKind::Scene(model) = &show.function(id)?.kind else {
+        return None;
+    };
+    let lights = scene_lights(show, model).fixtures;
     let fixtures: BTreeSet<u32> = entries
         .keys()
         .filter_map(|&c| compiled.channels.get(c as usize).map(|lc| lc.fixture))
+        .chain(
+            lights
+                .iter()
+                .filter_map(|f| compiled.fixture_index.get(f).copied()),
+        )
         .collect();
     let mut out: Vec<SceneFixtureChannels> = fixtures
         .into_iter()

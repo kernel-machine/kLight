@@ -1,7 +1,7 @@
 <script lang="ts">
   // Functions: scenes, chasers, cue lists, effects, collections, palettes.
   import { app, run } from '../lib/app.svelte';
-  import { chaserStepTypes, collectionMemberTypes, colorSequence, colorToHex, describeTarget, describeValue, formatTime, hexToColor, maxSequenceColors, nextId, parseTime } from '../lib/show';
+  import { chaserStepTypes, collectionMemberTypes, colorSequence, copyName, colorToHex, describeTarget, describeValue, formatTime, hexToColor, maxSequenceColors, nextId, parseTime } from '../lib/show';
   import type { Cue, Function as Fn, FunctionKind, SceneValue, TimeValue } from '../lib/protocol';
   import SceneEditor from '../components/SceneEditor.svelte';
   import MovementEditor from '../components/MovementEditor.svelte';
@@ -26,6 +26,20 @@
     return run({ type: 'set_function', function: f });
   }
 
+  let duplicating = false;
+  /** A new scene like this one, in the same folder, which opens. */
+  async function duplicate(f: Fn) {
+    if (duplicating) return; // a second click would take the same id
+    duplicating = true;
+    try {
+      const id = nextId(show.functions);
+      const name = copyName(f.name, show.functions.map((x) => x.name));
+      if (await save({ ...f, id, name })) selectedId = id;
+    } finally {
+      duplicating = false;
+    }
+  }
+
   function timeInput(current: TimeValue, apply: (t: TimeValue) => void) {
     const text = window.prompt('Time (e.g. 500, 1.5s, 2 beats)', formatTime(current));
     if (text === null) return;
@@ -37,7 +51,7 @@
     const id = nextId(show.functions);
     const firstGroup = show.groups[0]?.id ?? 0;
     const kinds: Record<FunctionKind['type'], FunctionKind> = {
-      scene: { type: 'scene', values: [], timing: { delay: { ms: 0 }, fade_in: { ms: 0 }, fade_out: { ms: 0 } }, spread: { type: 'none' }, attribute_timing: [] },
+      scene: { type: 'scene', members: [], new_members_follow: true, values: [], timing: { delay: { ms: 0 }, fade_in: { ms: 0 }, fade_out: { ms: 0 } }, spread: { type: 'none' }, attribute_timing: [] },
       chaser: { type: 'chaser', steps: [], hold: { beats: 1 }, fade: { ms: 0 }, direction: 'Forward', run_mode: 'Loop' },
       cue_list: { type: 'cue_list', cues: [], move_in_black: true },
       movement_effect: { type: 'movement_effect', group: firstGroup, shape: { type: 'circle' }, center_pan: 0, center_tilt: 0, width: 60, height: 30, period: { beats: 4 }, phase_spread: 0, direction: 'Forward' },
@@ -52,20 +66,6 @@
   }
 
   const programmerValues = (): SceneValue[] => programmer.map((e) => ({ target: e.target, value: { type: 'explicit', value: e.value } }));
-
-  /** Folders of a type with their full path, for the move selector. */
-  function folderPaths(category: FunctionKind['type']): Array<[number, string]> {
-    const path = (id: number | null | undefined, depth = 0): string => {
-      const folder = show.function_folders.find((x) => x.id === id);
-      if (!folder || depth > 32) return '';
-      const up = path(folder.parent, depth + 1);
-      return up ? `${up} / ${folder.name}` : folder.name;
-    };
-    return show.function_folders
-      .filter((x) => x.category === category)
-      .map((x) => [x.id, path(x.id)] as [number, string])
-      .sort((a, b) => a[1].localeCompare(b[1], undefined, { numeric: true }));
-  }
 
   // Color sequence: one scene per color, for a group. The colors come from the core.
   const maxColors = maxSequenceColors();
@@ -90,7 +90,7 @@
           { target, value: { type: 'explicit', value: { type: 'intensity', level: 1 } } },
           { target, value: { type: 'explicit', value: { type: 'color', color: c.color } } },
         ];
-        const kind: FunctionKind = { type: 'scene', values, timing: { delay: { ms: 0 }, fade_in: { ms: 0 }, fade_out: { ms: 0 } }, spread: { type: 'none' }, attribute_timing: [] };
+        const kind: FunctionKind = { type: 'scene', members: [target], new_members_follow: true, values, timing: { delay: { ms: 0 }, fade_in: { ms: 0 }, fade_out: { ms: 0 } }, spread: { type: 'none' }, attribute_timing: [] };
         if (!(await save({ id: first + i, name: c.name, kind, folder }))) return;
       }
     } finally {
@@ -142,12 +142,14 @@
       <div class="row">
         <input value={f.name} onchange={(e) => save({ ...f, name: e.currentTarget.value })} />
         <span class="badge">{kindLabel(f.kind.type)}</span>
-        <label class="row">Folder
-          <select value={f.folder ?? ''} aria-label="Folder" onchange={(e) => save({ ...f, folder: e.currentTarget.value === '' ? null : Number(e.currentTarget.value) })}>
-            <option value="">— top level —</option>
-            {#each folderPaths(f.kind.type) as [id, path] (id)}<option value={id}>{path}</option>{/each}
-          </select>
-        </label>
+        {#if f.kind.type === 'scene'}
+          {#if active.has(f.id)}
+            <button class="primary" onclick={() => run({ type: 'stop_function', id: f.id })}>Stop</button>
+          {:else}
+            <button onclick={() => run({ type: 'start_function', id: f.id })}>Start</button>
+          {/if}
+          <button onclick={() => duplicate(f)}>Duplicate</button>
+        {/if}
         <button class="danger" onclick={() => { run({ type: 'remove_function', id: f.id }); selectedId = null; }}>Delete</button>
       </div>
 

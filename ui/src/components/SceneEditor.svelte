@@ -1,10 +1,14 @@
 <script lang="ts">
-  // Scene contents: which groups/fixtures and which intentions.
-  import { app, notify, run } from '../lib/app.svelte';
+  // Scene contents: its lights (groups and fixtures), the values given to all
+  // of them or to some, and their channels.
+  import { app, client, notify, pref, run, setPref } from '../lib/app.svelte';
+  import { livePreview } from '../lib/livePreview';
   import SceneFaders from './SceneFaders.svelte';
+  import ApplyTo from './ApplyTo.svelte';
+  import LightPickerDialog from './LightPickerDialog.svelte';
   import { editQueue } from '../lib/queue';
-  import { capabilityNames, colorToHex, describeTarget, describeValue, groupFixtures, hexToColor } from '../lib/show';
-  import { addSceneValues, colorChoices, sceneValueColor, setSceneChannel, valueSupport } from '../lib/core';
+  import { capabilityNames, colorToHex, describeTarget, describeValue, hexToColor } from '../lib/show';
+  import { addSceneMembers, addSceneValues, colorChoices, removeSceneMember, sceneLights, sceneValueColor, setSceneChannel, valueSupport } from '../lib/core';
   import type { AttributeValue, ChannelRef, FanMode, Function as Fn, Scene, SceneValue, Show, Target, ValueSource } from '../lib/protocol';
 
   let { f, scene }: { f: Fn; scene: Scene } = $props();
@@ -12,7 +16,10 @@
   const programmer = $derived(app.s.runtime?.state.programmer ?? []);
 
   type Kind = 'intensity' | 'color' | 'position' | 'fan' | 'gobo' | 'prism' | 'zoom' | 'strobe' | 'palette';
-  let targetKey = $state('');
+  /** What new values go to: one group, some fixtures, or (neither) all lights. */
+  let toGroup = $state<number | null>(null);
+  let toFixtures = $state<number[]>([]);
+  let adding = $state(false);
   let kind = $state<Kind>('intensity');
   let level = $state(100);
   let color = $state('#ff0000');
@@ -23,28 +30,69 @@
   let name = $state('');
   let zoom = $state(20);
   let hz = $state(5);
+  let panDmx = $state(128);
+  let tiltDmx = $state(128);
+  let strobeDmx = $state(128);
+  /** Chosen where some lights have units and others only DMX values. */
+  let preferDmx = $state({ position: false, strobe: false });
   let paletteId = $state<number | null>(null);
 
-  const targets = $derived([
-    ...show.groups.map((g) => ({ key: `g${g.id}`, label: `Group: ${g.name}`, target: { type: 'group', id: g.id } as Target })),
-    ...show.fixtures.map((x) => ({ key: `f${x.id}`, label: x.name, target: { type: 'fixture', id: x.id } as Target })),
-  ]);
-  const target = $derived(targets.find((t) => t.key === targetKey)?.target ?? null);
+  const lights = $derived(sceneLights(show, f.id));
+  const memberGroups = $derived(
+    lights.members.flatMap((m) => (m.target.type === 'group' ? show.groups.filter((g) => g.id === (m.target as { id: number }).id) : [])),
+  );
+  const fixtureName = (id: number) => show.fixtures.find((x) => x.id === id)?.name ?? `Fixture ${id}`;
+  // A light that left the scene is no longer chosen.
+  const group = $derived(memberGroups.some((g) => g.id === toGroup) ? toGroup : null);
+  const chosen = $derived(group === null ? toFixtures.filter((id) => lights.fixtures.includes(id)) : []);
+  const all = $derived(group === null && !chosen.length);
+  const targets = $derived<Target[]>(
+    !lights.members.length
+      ? []
+      : group !== null
+        ? [{ type: 'group', id: group }]
+        : chosen.length
+          ? chosen.map((id) => ({ type: 'fixture', id }))
+          : [{ type: 'scene' }],
+  );
   const targetFixtures = $derived.by(() => {
-    if (!target) return [];
-    if (target.type === 'group') {
-      const g = show.groups.find((x) => x.id === target.id);
-      return g ? groupFixtures(show, g) : [];
-    }
-    return show.fixtures.filter((x) => x.id === target.id);
+    const ids =
+      group !== null
+        ? (lights.members.find((m) => m.target.type === 'group' && m.target.id === group)?.fixtures ?? [])
+        : chosen.length
+          ? chosen
+          : lights.fixtures;
+    return show.fixtures.filter((x) => ids.includes(x.id));
   });
+  // Another scene starts from all of its lights. (`f` is replaced at every
+  // edit: only a change of its id counts.)
+  const sceneId = $derived(f.id);
+  $effect(() => {
+    void sceneId;
+    toAll();
+    adding = false;
+    dragged = null;
+  });
+
+  function toAll() {
+    toGroup = null;
+    toFixtures = [];
+  }
+  function chooseGroup(id: number) {
+    toGroup = group === id ? null : id;
+    toFixtures = [];
+  }
+  function chooseFixtures(ids: number[]) {
+    toFixtures = ids;
+    toGroup = null;
+  }
   // Only what the selected fixtures can do is offered (a palette always).
   const support = $derived(valueSupport(show, targetFixtures.map((x) => x.id)));
   const allowed = $derived<Kind[]>([
     ...(support.intensity ? (['intensity'] as const) : []),
     ...(support.color ? (['color'] as const) : []),
     ...(support.position ? (['position'] as const) : []),
-    ...(support.position && target?.type === 'group' ? (['fan'] as const) : []),
+    ...(support.position_degrees && group !== null ? (['fan'] as const) : []),
     ...(support.gobo ? (['gobo'] as const) : []),
     ...(support.prism ? (['prism'] as const) : []),
     ...(support.zoom ? (['zoom'] as const) : []),
@@ -52,11 +100,21 @@
     // Palettes are made in the Simple Desk: with none there is nothing to pick.
     ...(show.palettes.length ? (['palette'] as const) : []),
   ]);
-  // Changing the target can leave the chosen attribute unavailable. Not
-  // before a target is chosen: with none, only "palette" would be allowed and
-  // the editor would open on it.
+  // Pan, tilt and strobe are plain DMX values where the definitions give no
+  // degrees or hertz (the core says which lights do).
+  const mixed = $derived({
+    position: support.position_degrees && support.position_dmx,
+    strobe: support.strobe_hz && support.strobe_dmx,
+  });
+  const positionDmx = $derived(mixed.position ? preferDmx.position : support.position_dmx);
+  const strobeAsDmx = $derived(mixed.strobe ? preferDmx.strobe : support.strobe_dmx);
+  const byte = (n: number) => Math.max(0, Math.min(255, Math.round(Number(n) || 0)));
+
+  // Changing the lights can leave the chosen attribute unavailable. Not while
+  // there are none: only "palette" would be allowed and the editor would open
+  // on it.
   $effect(() => {
-    if (target && !allowed.includes(kind)) kind = allowed[0] ?? kind;
+    if (targets.length && !allowed.includes(kind)) kind = allowed[0] ?? kind;
   });
 
   // Fixtures with a color wheel can only show its colors: those are offered
@@ -65,62 +123,67 @@
   const onWheel = $derived(choices.wheel.some((w) => colorToHex(w.color) === color));
   const names = $derived(kind === 'gobo' || kind === 'prism' ? capabilityNames(show, targetFixtures, kind === 'gobo' ? 'Gobo' : 'Prism') : []);
 
-  $effect(() => {
-    if (!targetKey && targets[0]) targetKey = targets[0].key;
-  });
-
-  function currentValue(): ValueSource | null {
+  /** The values the panel would add (a DMX position is two); none while incomplete. */
+  function currentValues(): ValueSource[] {
     const v = (value: AttributeValue): ValueSource => ({ type: 'explicit', value });
+    const raw = (attribute: 'Pan' | 'Tilt' | 'Shutter', n: number) => v({ type: 'raw', attribute, value: byte(n) });
     switch (kind) {
       case 'intensity':
-        return v({ type: 'intensity', level: level / 100 });
+        return [v({ type: 'intensity', level: level / 100 })];
       case 'color':
-        return v({ type: 'color', color: hexToColor(color) });
+        return [v({ type: 'color', color: hexToColor(color) })];
       case 'position':
-        return v({ type: 'position', pan, tilt });
+        return positionDmx ? [raw('Pan', panDmx), raw('Tilt', tiltDmx)] : [v({ type: 'position', pan, tilt })];
       case 'fan':
-        return v({ type: 'position_fan', pan, tilt, pan_spread: spread, tilt_spread: 0, mode: fanMode });
+        return [v({ type: 'position_fan', pan, tilt, pan_spread: spread, tilt_spread: 0, mode: fanMode })];
       case 'gobo':
-        return name ? v({ type: 'gobo', name }) : null;
+        return name ? [v({ type: 'gobo', name })] : [];
       case 'prism':
-        return name ? v({ type: 'prism', name }) : null;
+        return name ? [v({ type: 'prism', name })] : [];
       case 'zoom':
-        return v({ type: 'zoom', degrees: zoom });
+        return [v({ type: 'zoom', degrees: zoom })];
       case 'strobe':
-        return v({ type: 'strobe', strobe: { type: 'Hz', hz } });
+        return strobeAsDmx ? [raw('Shutter', strobeDmx)] : [v({ type: 'strobe', strobe: { type: 'Hz', hz } })];
       case 'palette':
-        return paletteId === null ? null : { type: 'palette', id: paletteId };
+        return paletteId === null ? [] : [{ type: 'palette', id: paletteId }];
     }
   }
 
   // Edits are queued and each one is applied to the latest version of the
   // scene: quick successive clicks must not overwrite each other.
   const enqueue = editQueue((e) => notify(String(e), 'error'));
-  function update(change: (values: SceneValue[], show: Show) => SceneValue[]) {
+  function update(change: (scene: Scene, show: Show) => Scene) {
     const id = f.id;
     return enqueue(() => {
       const latest = app.s.show;
       const current = latest?.functions.find((x) => x.id === id);
       if (!latest || !current || current.kind.type !== 'scene') return;
-      const values = change(current.kind.values, latest);
-      return run({ type: 'set_function', function: { ...current, kind: { ...current.kind, values } } });
+      const next = change(current.kind, latest);
+      return run({ type: 'set_function', function: { ...current, kind: { ...next, type: 'scene' } } });
     });
   }
+  const updateValues = (change: (values: SceneValue[]) => SceneValue[]) =>
+    update((s) => ({ ...s, values: change(s.values) }));
 
   function add() {
-    const value = currentValue();
-    if (!target || !value) return;
-    const sv: SceneValue = { target, value };
-    update((values, latest) => addSceneValues(latest, values, [sv]));
+    const values = currentValues();
+    if (!targets.length || !values.length) return;
+    const incoming: SceneValue[] = targets.flatMap((target) => values.map((value) => ({ target, value })));
+    update((s, latest) => addSceneValues(latest, s, incoming));
+  }
+
+  function addLights(more: Target[]) {
+    adding = false;
+    update((s, latest) => addSceneMembers(latest, s, more));
   }
 
   function mergeProgrammer(replace: boolean) {
     const incoming: SceneValue[] = programmer.map((e) => ({ target: e.target, value: { type: 'explicit', value: e.value } }));
-    update((values, latest) => addSceneValues(latest, replace ? [] : values, incoming));
+    update((s, latest) => addSceneValues(latest, replace ? { ...s, values: [] } : s, incoming));
   }
 
   const setChannel = (fixture: number, channel: ChannelRef, value: number | null) =>
-    update((values) => setSceneChannel(values, fixture, channel, value));
+    updateValues((values) => setSceneChannel(values, fixture, channel, value));
 
   /** Channels set by hand: listed once per fixture, edited on the faders. */
   const manual = $derived.by(() => {
@@ -132,18 +195,95 @@
   });
 
   function releaseFixture(id: number) {
-    update((values) => values.filter((x) => !(x.value.type === 'channel' && x.target.type === 'fixture' && x.target.id === id)));
+    updateValues((values) => values.filter((x) => !(x.value.type === 'channel' && x.target.type === 'fixture' && x.target.id === id)));
   }
 
   function removeValue(sv: SceneValue) {
-    update((values) => values.filter((x) => JSON.stringify(x) !== JSON.stringify(sv)));
+    updateValues((values) => values.filter((x) => JSON.stringify(x) !== JSON.stringify(sv)));
+  }
+
+  /** The preset panel, above the values: brought into view to edit one. */
+  let panel = $state<HTMLElement>();
+
+  const ATTRIBUTES: Array<[Kind, string]> = [
+    ['intensity', 'Intensity'],
+    ['color', 'Color'],
+    ['position', 'Position'],
+    ['fan', 'Fan (group order)'],
+    ['gobo', 'Gobo'],
+    ['prism', 'Prism'],
+    ['zoom', 'Zoom'],
+    ['strobe', 'Strobe'],
+    ['palette', 'Palette'],
+  ];
+  // ---- live preview: the lights show the scene, with what is being tried
+  // (a control moved in the panel, a channel fader being dragged).
+  let wantsPreview = $state(pref('scene.preview', false));
+  $effect(() => setPref('scene.preview', wantsPreview));
+  const canPreview = $derived(
+    app.s.connection === 'connected' && app.s.permission === 'full' && app.s.runtime?.state.mode === 'Design',
+  );
+  /** What the panel is about: the controls count once moved for it. */
+  const aim = $derived(JSON.stringify([sceneId, kind, targets]));
+  let movedFor = $state('');
+  // Turning to something else starts afresh, also when coming back to it.
+  $effect.pre(() => {
+    void aim;
+    movedFor = '';
+  });
+  let dragged = $state<{ fixture: number; channel: ChannelRef; value: number } | null>(null);
+  const trial = $derived.by(() => {
+    if (!wantsPreview || !canPreview) return null;
+    let s: Scene = scene;
+    const values = movedFor === aim ? currentValues() : [];
+    if (values.length && targets.length) {
+      s = addSceneValues(show, s, targets.flatMap((target) => values.map((value) => ({ target, value }))));
+    }
+    return dragged ? { ...s, values: setSceneChannel(s.values, dragged.fixture, dragged.channel, dragged.value) } : s;
+  });
+  let failed = false;
+  const preview = livePreview((command) => {
+    client.command(command).catch((e: Error) => {
+      // Told once: it is sent over and over.
+      if (!failed) notify(`Preview: ${e.message}`, 'error');
+      failed = true;
+    });
+  });
+  $effect(() => {
+    if (trial) preview.show(trial.values, trial.members);
+    else preview.stop();
+  });
+  // Leaving the editor gives the lights back.
+  $effect(() => () => preview.stop());
+
+  /** Who the next value goes to, in words. */
+  const targetName = $derived(
+    group !== null
+      ? `Group ${memberGroups.find((g) => g.id === group)?.name}`
+      : chosen.length === 1
+        ? fixtureName(chosen[0]!)
+        : chosen.length
+          ? `${chosen.length} chosen fixtures`
+          : 'All lights',
+  );
+
+  /** The DMX value a scene gives an attribute of a target, if it does. */
+  function rawOf(target: Target, attribute: string): number | undefined {
+    for (const sv of scene.values) {
+      if (JSON.stringify(sv.target) !== JSON.stringify(target) || sv.value.type !== 'explicit') continue;
+      if (sv.value.value.type === 'raw' && sv.value.value.attribute === attribute) return sv.value.value.value;
+    }
+    return undefined;
   }
 
   /** Loads an existing value into the form to edit it. */
   function load(sv: SceneValue) {
     if (sv.value.type === 'channel') return;
-    const t = targets.find((x) => JSON.stringify(x.target) === JSON.stringify(sv.target));
-    if (t) targetKey = t.key;
+    panel?.scrollIntoView({ block: 'nearest' });
+    const t = sv.target;
+    toAll();
+    if (t.type === 'group') toGroup = t.id;
+    else if (t.type === 'fixture' || t.type === 'head') toFixtures = [t.id];
     if (sv.value.type === 'palette') {
       kind = 'palette';
       paletteId = sv.value.id;
@@ -153,12 +293,25 @@
     switch (v.type) {
       case 'intensity': kind = 'intensity'; level = Math.round(v.level * 100); break;
       case 'color': kind = 'color'; color = colorToHex(v.color); break;
-      case 'position': kind = 'position'; pan = v.pan; tilt = v.tilt; break;
+      case 'position': kind = 'position'; preferDmx.position = false; pan = v.pan; tilt = v.tilt; break;
       case 'position_fan': kind = 'fan'; pan = v.pan; tilt = v.tilt; spread = v.pan_spread; fanMode = v.mode; break;
       case 'gobo': kind = 'gobo'; name = v.name; break;
       case 'prism': kind = 'prism'; name = v.name; break;
       case 'zoom': kind = 'zoom'; zoom = v.degrees; break;
-      case 'strobe': kind = 'strobe'; if (v.strobe.type === 'Hz') hz = v.strobe.hz; break;
+      case 'strobe': kind = 'strobe'; preferDmx.strobe = false; if (v.strobe.type === 'Hz') hz = v.strobe.hz; break;
+      case 'raw':
+        if (v.attribute === 'Shutter') {
+          kind = 'strobe';
+          preferDmx.strobe = true;
+          strobeDmx = v.value;
+        } else if (v.attribute === 'Pan' || v.attribute === 'Tilt') {
+          kind = 'position';
+          preferDmx.position = true;
+          // Pan and tilt are edited together: the other one comes along.
+          panDmx = rawOf(sv.target, 'Pan') ?? panDmx;
+          tiltDmx = rawOf(sv.target, 'Tilt') ?? tiltDmx;
+        }
+        break;
       default: break;
     }
   }
@@ -182,7 +335,132 @@
   }
 </script>
 
-<h3>Contents</h3>
+<h3>Lights ({lights.fixtures.length})</h3>
+<ul class="lights" aria-label="Scene lights">
+  {#each lights.members as m (JSON.stringify(m.target))}
+    {@const name = describeTarget(show, m.target)}
+    <li>
+      <span class="light">{name}</span>
+      {#if m.target.type === 'group'}
+        <span class="muted of" title={m.fixtures.map(fixtureName).join(', ')}>group: {m.fixtures.map(fixtureName).join(', ') || 'no fixtures'}</span>
+      {/if}
+      <button aria-label="Remove {name} from the scene" title="Remove from the scene" onclick={() => update((s, latest) => removeSceneMember(latest, s, m.target))}>×</button>
+    </li>
+  {:else}
+    <li class="muted">No lights yet: add the groups and fixtures this scene drives.</li>
+  {/each}
+</ul>
+<div class="row">
+  <button class="primary" onclick={() => (adding = true)}>Add lights…</button>
+  <label class="row" title="When off, lights added later do not take the values given to all lights">
+    <input type="checkbox" checked={scene.new_members_follow} onchange={(e) => { const on = e.currentTarget.checked; update((s) => ({ ...s, new_members_follow: on })); }} />
+    Lights added later take the values of all lights
+  </label>
+</div>
+
+{#snippet fromProgrammer()}
+  <button disabled={!programmer.length} onclick={() => mergeProgrammer(false)}>Add programmer values</button>
+  <button disabled={!programmer.length} onclick={() => mergeProgrammer(true)}>Replace with programmer</button>
+{/snippet}
+
+<!-- Units or plain DMX values, where the chosen lights allow both. -->
+{#snippet unit(what: 'position' | 'strobe', label: string, missing: string)}
+  <div class="unit" role="radiogroup" aria-label="Unit">
+    <button role="radio" aria-checked={!preferDmx[what]} class:on={!preferDmx[what]} onclick={() => (preferDmx[what] = false)}>{label}</button>
+    <button role="radio" aria-checked={preferDmx[what]} class:on={preferDmx[what]} onclick={() => (preferDmx[what] = true)}>DMX 0–255</button>
+  </div>
+  <span class="muted small">Some of these lights have no {missing}. DMX writes the same value on all of them.</span>
+{/snippet}
+
+<!-- A scene starts from its lights: the rest appears once it has some. -->
+{#if lights.members.length}
+<div class="compose">
+  <div class="steps">
+    <section class="card pick" aria-label="Choose lights">
+      <h3><span class="step">1</span> Choose lights</h3>
+      {#key sceneId}
+        <ApplyTo {lights} groups={memberGroups} {group} {chosen} onall={toAll} ongroup={chooseGroup} onfixtures={chooseFixtures} />
+      {/key}
+    </section>
+
+    <section class="card preset" aria-label="Apply a preset" bind:this={panel}>
+      <h3><span class="step">2</span> Apply a preset</h3>
+      <label class="live" title="The lights show this scene and follow the controls; nothing is saved until you add it">
+        <input type="checkbox" bind:checked={wantsPreview} disabled={!canPreview} />
+        Live preview on the lights
+      </label>
+      <p class="target">to <b>{targetName}</b> {#if !chosen.length}<span class="muted">· {targetFixtures.length} fixture{targetFixtures.length === 1 ? '' : 's'}</span>{/if}</p>
+      <div class="attributes" role="radiogroup" aria-label="Scene attribute">
+        {#each ATTRIBUTES.filter(([k]) => allowed.includes(k)) as [k, label] (k)}
+          <button role="radio" aria-checked={kind === k} class:on={kind === k} onclick={() => (kind = k)}>{label}</button>
+        {/each}
+      </div>
+      <!-- Any control moved counts for the preview. -->
+      <div class="control" role="presentation" oninput={() => (movedFor = aim)} onchange={() => (movedFor = aim)}>
+        {#if !allowed.length}
+          <span class="muted">Nothing to set: these lights have no fixtures, and there are no palettes yet (create them in the Simple Desk).</span>
+        {:else if kind === 'intensity'}
+          <span class="level">{level}%</span>
+          <input type="range" min="0" max="100" bind:value={level} aria-label="Intensity" />
+        {:else if kind === 'color'}
+          {#if choices.wheel.length}
+            <div class="wheel" role="radiogroup" aria-label="Color wheel colors">
+              {#each choices.wheel as w (colorToHex(w.color))}
+                {@const hex = colorToHex(w.color)}
+                <button class="chip" class:on={hex === color} role="radio" aria-checked={hex === color} aria-label={w.name} title={w.name} style="--c:{hex}" onclick={() => { color = hex; movedFor = aim; }}></button>
+              {/each}
+            </div>
+          {/if}
+          {#if choices.free}<input type="color" bind:value={color} aria-label="Color" />{/if}
+          {#if !choices.free && !onWheel}<span class="muted">Choose one of the wheel colors.</span>{/if}
+        {:else if kind === 'position'}
+          {#if mixed.position}{@render unit('position', 'Degrees', 'range in degrees')}{/if}
+          {#if positionDmx}
+            <label>Pan <input type="range" min="0" max="255" bind:value={panDmx} aria-label="Pan DMX" /><input class="byte" type="number" min="0" max="255" bind:value={panDmx} aria-label="Pan DMX value" /></label>
+            <label>Tilt <input type="range" min="0" max="255" bind:value={tiltDmx} aria-label="Tilt DMX" /><input class="byte" type="number" min="0" max="255" bind:value={tiltDmx} aria-label="Tilt DMX value" /></label>
+          {:else}
+            <label>Pan <input type="number" min="-270" max="270" step="0.5" bind:value={pan} />°</label>
+            <label>Tilt <input type="number" min="-135" max="135" step="0.5" bind:value={tilt} />°</label>
+          {/if}
+        {:else if kind === 'fan'}
+          <label>Pan <input type="number" min="-270" max="270" step="0.5" bind:value={pan} />°</label>
+          <label>Tilt <input type="number" min="-135" max="135" step="0.5" bind:value={tilt} />°</label>
+          <label>Spread <input type="number" min="-540" max="540" step="1" bind:value={spread} />°</label>
+          <select bind:value={fanMode}><option value="linear">linear</option><option value="from_center">from center</option></select>
+        {:else if kind === 'gobo' || kind === 'prism'}
+          <select bind:value={name}>
+            <option value="">— choose —</option>
+            {#each names as n (n)}<option value={n}>{n}</option>{/each}
+          </select>
+          {#if !names.length}<span class="muted">The selected fixtures have no {kind}.</span>{/if}
+        {:else if kind === 'zoom'}
+          <label>Zoom <input type="number" min="1" max="90" bind:value={zoom} />°</label>
+        {:else if kind === 'strobe'}
+          {#if mixed.strobe}{@render unit('strobe', 'Hz', 'frequencies in Hz')}{/if}
+          {#if strobeAsDmx}
+            <label>Strobe <input type="range" min="0" max="255" bind:value={strobeDmx} aria-label="Strobe DMX" /><input class="byte" type="number" min="0" max="255" bind:value={strobeDmx} aria-label="Strobe DMX value" /></label>
+          {:else}
+            <label>Strobe <input type="number" min="0.5" max="30" step="0.5" bind:value={hz} /> Hz</label>
+          {/if}
+        {:else}
+          <select bind:value={paletteId}>
+            <option value={null}>— choose —</option>
+            {#each show.palettes as p (p.id)}<option value={p.id}>{p.name} ({p.kind})</option>{/each}
+          </select>
+        {/if}
+      </div>
+      <button class="primary apply" disabled={!currentValues().length || (kind === 'color' && !choices.free && !onWheel)} onclick={add}>Add to scene</button>
+      <div class="programmer">{@render fromProgrammer()}</div>
+    </section>
+  </div>
+</div>
+{:else if programmer.length}
+  <!-- The programmer brings its own lights. -->
+  <div class="row start">{@render fromProgrammer()}</div>
+{/if}
+
+{#if lights.members.length || scene.values.length}
+<h3>Values</h3>
 <table>
   <tbody>
     {#each scene.values as sv, i (i)}
@@ -206,88 +484,70 @@
       </tr>
     {/each}
     {#if !scene.values.length}
-      <tr><td class="muted">Empty scene: add a group or fixture below.</td></tr>
+      <tr><td class="muted">No values yet.</td></tr>
     {/if}
   </tbody>
 </table>
 
-<div class="add panel">
-  <div class="row">
-    <label class="row">Group / fixture
-      <select bind:value={targetKey} aria-label="Scene target">
-        {#each targets as t (t.key)}<option value={t.key}>{t.label}</option>{/each}
-      </select>
-    </label>
-    <label class="row">Attribute
-      <select bind:value={kind} aria-label="Scene attribute">
-        {#if allowed.includes('intensity')}<option value="intensity">Intensity</option>{/if}
-        {#if allowed.includes('color')}<option value="color">Color</option>{/if}
-        {#if allowed.includes('position')}<option value="position">Position</option>{/if}
-        {#if allowed.includes('fan')}<option value="fan">Fan (group order)</option>{/if}
-        {#if allowed.includes('gobo')}<option value="gobo">Gobo</option>{/if}
-        {#if allowed.includes('prism')}<option value="prism">Prism</option>{/if}
-        {#if allowed.includes('zoom')}<option value="zoom">Zoom</option>{/if}
-        {#if allowed.includes('strobe')}<option value="strobe">Strobe</option>{/if}
-        {#if allowed.includes('palette')}<option value="palette">Palette</option>{/if}
-      </select>
-    </label>
-  </div>
-  <div class="row">
-    {#if !allowed.length}
-      <span class="muted">Nothing to set: this target has no fixtures, and there are no palettes yet (create them in the Simple Desk).</span>
-    {:else if kind === 'intensity'}
-      <input type="range" min="0" max="100" bind:value={level} aria-label="Intensity" /> <span>{level}%</span>
-    {:else if kind === 'color'}
-      {#if choices.wheel.length}
-        <div class="wheel" role="radiogroup" aria-label="Color wheel colors">
-          {#each choices.wheel as w (colorToHex(w.color))}
-            {@const hex = colorToHex(w.color)}
-            <button class="chip" class:on={hex === color} role="radio" aria-checked={hex === color} aria-label={w.name} title={w.name} style="--c:{hex}" onclick={() => (color = hex)}></button>
-          {/each}
-        </div>
-      {/if}
-      {#if choices.free}<input type="color" bind:value={color} aria-label="Color" />{/if}
-      {#if !choices.free && !onWheel}<span class="muted">Choose one of the wheel colors.</span>{/if}
-    {:else if kind === 'position'}
-      <label>Pan <input type="number" min="-270" max="270" step="0.5" bind:value={pan} style="width:80px" />°</label>
-      <label>Tilt <input type="number" min="-135" max="135" step="0.5" bind:value={tilt} style="width:80px" />°</label>
-    {:else if kind === 'fan'}
-      <label>Pan <input type="number" min="-270" max="270" step="0.5" bind:value={pan} style="width:72px" />°</label>
-      <label>Tilt <input type="number" min="-135" max="135" step="0.5" bind:value={tilt} style="width:72px" />°</label>
-      <label>Spread <input type="number" min="-540" max="540" step="1" bind:value={spread} style="width:72px" />°</label>
-      <select bind:value={fanMode}><option value="linear">linear</option><option value="from_center">from center</option></select>
-    {:else if kind === 'gobo' || kind === 'prism'}
-      <select bind:value={name}>
-        <option value="">— choose —</option>
-        {#each names as n (n)}<option value={n}>{n}</option>{/each}
-      </select>
-      {#if !names.length}<span class="muted">The selected fixtures have no {kind}.</span>{/if}
-    {:else if kind === 'zoom'}
-      <label>Zoom <input type="number" min="1" max="90" bind:value={zoom} style="width:70px" />°</label>
-    {:else if kind === 'strobe'}
-      <label>Strobe <input type="number" min="0.5" max="30" step="0.5" bind:value={hz} style="width:70px" /> Hz</label>
-    {:else}
-      <select bind:value={paletteId}>
-        <option value={null}>— choose —</option>
-        {#each show.palettes as p (p.id)}<option value={p.id}>{p.name} ({p.kind})</option>{/each}
-      </select>
-    {/if}
-    <button class="primary" disabled={!target || !currentValue() || (kind === 'color' && !choices.free && !onWheel)} onclick={add}>Add to scene</button>
-  </div>
-  <div class="row">
-    <button disabled={!programmer.length} onclick={() => mergeProgrammer(false)}>Add programmer values</button>
-    <button disabled={!programmer.length} onclick={() => mergeProgrammer(true)}>Replace with programmer</button>
-  </div>
-</div>
+<SceneFaders functionId={f.id} onset={setChannel} ontry={(change) => (dragged = change)} />
+{/if}
 
-<SceneFaders functionId={f.id} onset={setChannel} />
+{#if adding}
+  <LightPickerDialog
+    added={{ groups: memberGroups.map((g) => g.id), fixtures: lights.fixtures }}
+    onconfirm={addLights}
+    onclose={() => (adding = false)}
+  />
+{/if}
 
 <style>
-  .add { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; background: var(--panel-2); }
+  /* Two steps: side by side where there is room, the preset staying in sight
+     while the list of lights scrolls. */
+  .compose { container-type: inline-size; margin-top: 14px; }
+  .steps { display: flex; flex-direction: column; gap: 12px; }
+  .card { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; background: var(--panel-2); min-width: 0; }
+  .card h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 15px; color: var(--text); }
+  .step { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 12px; }
+  .preset { display: flex; flex-direction: column; gap: 12px; }
+  .preset h3, .preset p { margin: 0; }
+  .live { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+  @container (min-width: 640px) {
+    .steps { flex-direction: row; align-items: flex-start; }
+    .pick { flex: 1; }
+    .preset { flex: 0 0 300px; position: sticky; top: 8px; }
+  }
+  .target { font-size: 13px; }
+  .target b { font-size: 16px; color: var(--accent); }
+  .attributes { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 4px; }
+  .attributes button { padding: 8px 4px; font-size: 13px; font-weight: 600; }
+  .attributes button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .unit { display: flex; gap: 4px; }
+  .unit button { flex: 1; padding: 4px; font-size: 12px; }
+  .unit button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .small { font-size: 12px; }
+  .control input[type='number'].byte { flex: 0 0 64px; }
+  .control label input[type='range'] { flex: 1; min-width: 0; }
+  .control { display: flex; flex-direction: column; gap: 8px; }
+  .control input[type='range'] { width: 100%; }
+  .control input[type='color'] { width: 100%; height: 44px; padding: 2px; cursor: pointer; }
+  .control label { display: flex; align-items: center; gap: 8px; }
+  .control input[type='number'] { flex: 1; min-width: 0; }
+  .level { font-size: 28px; font-weight: 700; text-align: center; font-variant-numeric: tabular-nums; }
+  .apply { padding: 12px; font-size: 16px; font-weight: 700; }
+  .start { margin-top: 12px; }
+  /* A second way to give values: kept apart and quiet. */
+  .programmer { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 10px; border-top: 1px solid var(--border); }
+  .programmer button { flex: 1; font-size: 12px; }
+  .lights { margin: 0 0 8px; padding: 0; list-style: none; border: 1px solid var(--border); border-radius: var(--radius); max-height: 30vh; overflow: auto; }
+  .lights li { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-bottom: 1px solid var(--border); }
+  .lights li:last-child { border-bottom: none; }
+  .light { font-weight: 600; }
+  .of { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .lights button { margin-left: auto; padding: 2px 10px; }
   .wheel { display: flex; flex-wrap: wrap; gap: 6px; }
-  .chip { width: 26px; height: 26px; padding: 0; border-radius: 6px; background: var(--c); border: 2px solid var(--border); cursor: pointer; }
-  .chip:hover { border-color: var(--muted); }
-  .chip.on { border-color: var(--text); box-shadow: 0 0 0 2px var(--accent); }
+  .wheel .chip { width: 26px; height: 26px; padding: 0; border-radius: 6px; background: var(--c); border: 2px solid var(--border); cursor: pointer; }
+  .wheel .chip:hover { border-color: var(--muted); }
+  .wheel .chip.on { border-color: var(--text); box-shadow: 0 0 0 2px var(--accent); }
   .swatch { display: inline-block; width: 18px; height: 18px; border-radius: 4px; border: 1px solid var(--border); vertical-align: middle; margin-right: 6px; }
   .actions { text-align: right; white-space: nowrap; }
 </style>

@@ -2,9 +2,18 @@
 import type { AttributeTiming } from "./AttributeTiming";
 import type { SceneValue } from "./SceneValue";
 import type { Spread } from "./Spread";
+import type { Target } from "./Target";
 import type { Timing } from "./Timing";
 
-export type Scene = { values: Array<SceneValue>, timing: Timing, spread: Spread, 
+export type Scene = { 
+/**
+ * The groups and fixtures added to the scene, in order.
+ */
+members: Array<Target>, 
+/**
+ * Whether lights added later take the values of the whole scene.
+ */
+new_members_follow: boolean, values: Array<SceneValue>, timing: Timing, spread: Spread, 
 /**
  * Overrides of `timing` for specific attribute kinds.
  */

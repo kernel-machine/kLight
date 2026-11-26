@@ -169,7 +169,14 @@ fn a_new_value_releases_the_channels_it_writes() {
     ];
     // Replacing the position of one spot releases only its pan.
     let one = explicit(fixture(SPOT1), position(10.0));
-    let after = add_scene_values(&show, &compiled, &values, std::slice::from_ref(&one));
+    let edit = |values: &[SceneValue], new: &SceneValue| {
+        let scene = Scene {
+            values: values.to_vec(),
+            ..Scene::default()
+        };
+        add_scene_values(&show, &compiled, &scene, std::slice::from_ref(new)).values
+    };
+    let after = edit(&values, &one);
     assert_eq!(
         after,
         vec![
@@ -190,7 +197,7 @@ fn a_new_value_releases_the_channels_it_writes() {
             mode: FanMode::Linear,
         },
     );
-    let again = add_scene_values(&show, &compiled, &after, std::slice::from_ref(&fan));
+    let again = edit(&after, &fan);
     assert_eq!(again.last(), Some(&fan));
     assert!(!again.contains(&one));
 }

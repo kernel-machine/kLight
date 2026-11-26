@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { app, pref, setPref } from './lib/app.svelte';
+  import { app, pref, run, setPref } from './lib/app.svelte';
   import StatusBar from './components/StatusBar.svelte';
   import MasterBar from './components/MasterBar.svelte';
   import DmxMonitor from './components/DmxMonitor.svelte';
@@ -23,6 +23,11 @@
   let monitor = $state(false);
   let theme = $state(pref<'dark' | 'light'>('theme', 'dark'));
 
+  // Changes to the show, whoever made them, can be taken back while editing.
+  const editing = $derived(
+    app.s.connection === 'connected' && app.s.permission === 'full' && app.s.runtime?.state.mode === 'Design',
+  );
+
   $effect(() => setPref('tab', tab));
   $effect(() => {
     document.documentElement.dataset.theme = theme;
@@ -39,6 +44,8 @@
       {/each}
     </nav>
     <div class="row">
+      <button disabled={!editing || !app.s.runtime?.undo_depth} title="Undo the last change to the show" onclick={() => run({ type: 'undo' })}>↶ Undo</button>
+      <button disabled={!editing || !app.s.runtime?.redo_depth} title="Redo the change just undone" onclick={() => run({ type: 'redo' })}>↷ Redo</button>
       <button onclick={() => (monitor = !monitor)} class:active={monitor}>DMX monitor</button>
       <button onclick={() => (theme = theme === 'dark' ? 'light' : 'dark')} title="Theme">◐</button>
     </div>

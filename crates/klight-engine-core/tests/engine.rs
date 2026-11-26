@@ -1310,6 +1310,7 @@ fn spread_delays_heads_in_group_order() {
                         step: TimeValue::Ms(100),
                     },
                     attribute_timing: vec![],
+                    ..Scene::default()
                 }),
             },
         },

@@ -1,0 +1,14 @@
+{
+  "schema_version": 4,
+  "name": "Example v4",
+  "universes": [{ "id": 1, "name": "Main", "output": { "kind": "EnttecPro", "serial_number": "EN123456", "port_hint": null } }],
+  "definitions": [],
+  "fixtures": [],
+  "groups": [{ "id": 1, "name": "Empty", "members": [], "grid_width": 0, "grid_height": 0 }],
+  "palettes": [{ "id": 1, "name": "Red", "kind": "Color", "generic": [{ "type": "color", "color": { "r": 1.0, "g": 0.0, "b": 0.0 } }], "per_fixture": [] }],
+  "functions": [{ "id": 1, "name": "Look", "kind": { "type": "scene", "members": [{ "type": "group", "id": 1 }, { "type": "fixture", "id": 1 }], "new_members_follow": false, "values": [{ "target": { "type": "scene" }, "value": { "type": "explicit", "value": { "type": "intensity", "level": 0.5 } } }, { "target": { "type": "group", "id": 1 }, "value": { "type": "palette", "id": 1 } }, { "target": { "type": "fixture", "id": 1 }, "value": { "type": "channel", "channel": { "type": "dmx", "attribute": "Pan", "index": 0, "fine": true }, "value": 12 } }], "timing": { "delay": { "ms": 0 }, "fade_in": { "beats": 2.0 }, "fade_out": { "ms": 500 } } } }, { "id": 2, "name": "All", "kind": { "type": "collection", "functions": [1] } }],
+  "virtual_console": { "widgets": [] },
+  "input_devices": [],
+  "input_mappings": [],
+  "settings": { "tick_hz": 44, "design_pin": null, "output_refresh_ms": 1000 }
+}

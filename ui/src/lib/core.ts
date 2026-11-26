@@ -17,7 +17,10 @@ import type {
   Color,
   FixtureGroup,
   FixtureInfo,
+  Scene,
   SceneFixtureChannels,
+  SceneLights,
+  Target,
   SceneValue,
   GroupLayout,
   MatrixEffect,
@@ -135,12 +138,29 @@ export function sceneChannels(show: Show, functionId: number): SceneFixtureChann
   return p;
 }
 
+/** The groups and fixtures of a scene, and every fixture they hold. */
+export function sceneLights(show: Show, functionId: number): SceneLights {
+  const json = view(show).view.scene_lights(functionId);
+  return json ? (JSON.parse(json) as SceneLights) : { members: [], fixtures: [] };
+}
+
 /**
- * Scene `values` after adding `incoming`: values in the same slot are replaced
- * and channels set by hand that `incoming` writes are released.
+ * Scene after adding `incoming`: the lights it names join the scene, values in
+ * the same slot are replaced and channels set by hand that it writes are
+ * released.
  */
-export function addSceneValues(show: Show, values: SceneValue[], incoming: SceneValue[]): SceneValue[] {
-  return JSON.parse(view(show).view.add_scene_values(JSON.stringify(values), JSON.stringify(incoming))) as SceneValue[];
+export function addSceneValues(show: Show, scene: Scene, incoming: SceneValue[]): Scene {
+  return JSON.parse(view(show).view.add_scene_values(JSON.stringify(scene), JSON.stringify(incoming))) as Scene;
+}
+
+/** Scene with more lights (groups and fixtures). */
+export function addSceneMembers(show: Show, scene: Scene, lights: Target[]): Scene {
+  return JSON.parse(view(show).view.add_scene_members(JSON.stringify(scene), JSON.stringify(lights))) as Scene;
+}
+
+/** Scene without one of its lights and the values that were its own. */
+export function removeSceneMember(show: Show, scene: Scene, light: Target): Scene {
+  return JSON.parse(view(show).view.remove_scene_member(JSON.stringify(scene), JSON.stringify(light))) as Scene;
 }
 
 /** Scene `values` with one channel of a fixture set by hand, or released (`null`). */

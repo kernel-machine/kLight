@@ -34,7 +34,7 @@
       if (t.type === 'group') {
         const g = show.groups.find((x) => x.id === t.id);
         if (g) groupFixtures(show, g).forEach((f) => ids.add(f.id));
-      } else ids.add(t.id);
+      } else if (t.type !== 'scene') ids.add(t.id);
     }
     return show.fixtures.filter((f) => ids.has(f.id));
   });

@@ -1,5 +1,5 @@
 <script lang="ts">
-  // All the channels of the fixtures a scene drives, one row of faders. The
+  // All the channels of the fixtures of a scene, one row of faders. The
   // values come from the engine's own compilation (groups, palettes and fans
   // resolved); moving a fader stores that channel in the scene.
   import { app, client } from '../lib/app.svelte';
@@ -13,10 +13,13 @@
   let {
     functionId,
     onset,
+    ontry,
   }: {
     functionId: number;
     /** Stores a channel in the scene (`null` releases it); resolves when applied. */
     onset: (fixture: number, channel: ChannelRef, value: number | null) => Promise<unknown>;
+    /** A channel on its way to a value, not stored yet (`null`: none). */
+    ontry: (change: { fixture: number; channel: ChannelRef; value: number } | null) => void;
   } = $props();
 
   const show = $derived(app.s.show!);
@@ -37,14 +40,23 @@
   // A change is stored when the fader is let go: one undo step per move.
   async function commit(fixture: number, c: SceneChannel, value: number) {
     const key = keyOf(fixture, c);
-    local[key] = value;
+    drag(fixture, c, value);
     await onset(fixture, c.channel, value);
     // Moved again in the meantime: that value is still on its way.
-    if (local[key] === value) delete local[key];
+    if (local[key] === value) {
+      delete local[key];
+      ontry(null);
+    }
+  }
+
+  function drag(fixture: number, c: SceneChannel, value: number) {
+    local[keyOf(fixture, c)] = value;
+    ontry({ fixture, channel: c.channel, value });
   }
 
   function release(fixture: number, c: SceneChannel) {
     delete local[keyOf(fixture, c)];
+    ontry(null);
     onset(fixture, c.channel, null);
   }
 
@@ -64,7 +76,7 @@
 
 <h3>Fixtures in this scene ({fixtures.length})</h3>
 {#if !fixtures.length}
-  <p class="muted">No fixture is driven by this scene yet.</p>
+  <p class="muted">Add lights to see their channels.</p>
 {:else}
   <div class="strips" role="group" aria-label="Scene channels">
     {#each fixtures as f, n (f.fixture)}
@@ -92,7 +104,7 @@
               disabled={c.locked}
               now={live(f.universe, c.address)}
               onchoose={choosable ? (e) => openPicker(e, f, c) : undefined}
-              oninput={(value) => (local[key] = value)}
+              oninput={(value) => drag(f.fixture, c, value)}
               onslideend={(value) => commit(f.fixture, c, value)}
               onentry={(value) => commit(f.fixture, c, value)}
               onrelease={() => release(f.fixture, c)}

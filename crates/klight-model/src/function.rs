@@ -80,9 +80,19 @@ pub enum Spread {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Target {
-    Fixture { id: FixtureId },
-    Head { id: FixtureId, head: u16 },
-    Group { id: GroupId },
+    Fixture {
+        id: FixtureId,
+    },
+    Head {
+        id: FixtureId,
+        head: u16,
+    },
+    Group {
+        id: GroupId,
+    },
+    /// Every light of the scene the value belongs to ([`Scene::members`]).
+    /// Only the values of a scene can have it.
+    Scene,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -135,9 +145,15 @@ pub struct AttributeTiming {
     pub timing: Timing,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Scene {
+    /// The groups and fixtures added to the scene, in order.
+    #[serde(default)]
+    pub members: Vec<Target>,
+    /// Whether lights added later take the values of the whole scene.
+    #[serde(default = "yes")]
+    pub new_members_follow: bool,
     pub values: Vec<SceneValue>,
     #[serde(default)]
     pub timing: Timing,
@@ -146,6 +162,23 @@ pub struct Scene {
     /// Overrides of `timing` for specific attribute kinds.
     #[serde(default)]
     pub attribute_timing: Vec<AttributeTiming>,
+}
+
+fn yes() -> bool {
+    true
+}
+
+impl Default for Scene {
+    fn default() -> Self {
+        Scene {
+            members: Vec::new(),
+            new_members_follow: yes(),
+            values: Vec::new(),
+            timing: Timing::default(),
+            spread: Spread::default(),
+            attribute_timing: Vec::new(),
+        }
+    }
 }
 
 impl Scene {

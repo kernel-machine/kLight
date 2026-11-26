@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::attributes::AttributeValue;
 use crate::fixture_def::FixtureDefinition;
-use crate::function::{Function, FunctionFolder, Target};
+use crate::function::{Function, FunctionFolder, SceneValue, Target};
 use crate::ids::{
     ClientId, FixtureId, FolderId, FunctionId, GroupId, PaletteId, UniverseId, WidgetId,
 };
@@ -207,6 +207,15 @@ pub enum Command {
     },
     /// Clears the programmer: intentions and raw channels.
     ProgrammerClear,
+    /// Shows scene values on the lights, on top of everything but grand master,
+    /// blackout and the raw desk channels, without touching the show: an editor
+    /// trying them out. `members` are the lights of the scene. It ends by itself
+    /// unless sent again (see `PREVIEW_HOLD_US` in the engine).
+    SetPreview {
+        values: Vec<SceneValue>,
+        members: Vec<Target>,
+    },
+    ClearPreview,
     /// Simple Desk: sets one DMX channel directly (`None` releases it).
     /// Intensity channels stay subject to grand master and blackout.
     SetChannel {
@@ -297,7 +306,11 @@ impl Command {
 
     /// Commands that only affect playback (allowed for "playback only" clients).
     pub fn is_playback(&self) -> bool {
-        !self.is_edit() && !matches!(self, Command::SetMode { .. })
+        !self.is_edit()
+            && !matches!(
+                self,
+                Command::SetMode { .. } | Command::SetPreview { .. } | Command::ClearPreview
+            )
     }
 }
 

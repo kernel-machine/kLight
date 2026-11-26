@@ -96,6 +96,39 @@ fn garbage_never_panics() {
 }
 
 #[test]
+fn older_scenes_list_the_lights_their_values_name() {
+    // A group, one of its fixtures and a head of another one.
+    let old = br#"{
+        "schema_version": 3, "name": "old", "universes": [], "definitions": [], "fixtures": [],
+        "groups": [{ "id": 1, "name": "G", "grid_width": 0, "grid_height": 0,
+                     "members": [{ "fixture": 2, "head": 0, "grid": null }] }],
+        "palettes": [],
+        "functions": [{ "id": 1, "name": "S", "kind": { "type": "scene", "values": [
+            { "target": { "type": "fixture", "id": 2 }, "value": { "type": "palette", "id": 1 } },
+            { "target": { "type": "head", "id": 3, "head": 1 }, "value": { "type": "palette", "id": 1 } },
+            { "target": { "type": "group", "id": 1 }, "value": { "type": "palette", "id": 1 } },
+            { "target": { "type": "fixture", "id": 3 }, "value": { "type": "palette", "id": 1 } }
+        ] } }],
+        "virtual_console": { "widgets": [] }, "input_devices": [], "input_mappings": [],
+        "settings": { "tick_hz": 44, "design_pin": null, "output_refresh_ms": 1000 }
+    }"#;
+    let show = parse_show_bytes(old).unwrap();
+    let FunctionKind::Scene(scene) = &show.functions[0].kind else {
+        panic!("not a scene");
+    };
+    // The group stands for its fixtures; each other fixture appears once.
+    assert_eq!(
+        scene.members,
+        [
+            Target::Group { id: GroupId(1) },
+            Target::Fixture { id: FixtureId(3) }
+        ]
+    );
+    assert!(scene.new_members_follow);
+    assert_eq!(scene.values.len(), 4);
+}
+
+#[test]
 fn future_versions_are_rejected() {
     let err = parse_show_bytes(br#"{"schema_version": 99, "name": "x"}"#).unwrap_err();
     assert!(matches!(err, PersistError::UnsupportedVersion { .. }));

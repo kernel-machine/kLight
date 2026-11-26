@@ -13,11 +13,12 @@ use klight_engine_core::effects::{head_phase, matrix_cell_color, matrix_phase, m
 use klight_engine_core::preview::scene_channels;
 use klight_engine_core::scene_edit;
 use klight_fixtures::color_sequence;
-use klight_model::inspect::{self, SceneFixtureChannels};
+use klight_model::inspect::{self, SceneFixtureChannels, SceneLights};
 use klight_model::vc::{widget_light, WidgetKind, WidgetLight};
 use klight_model::{
     ActiveFunction, ChannelRef, Color, FixtureId, FunctionCategory, FunctionId, GroupId,
-    GroupLayout, MatrixEffect, MovementEffect, Rgb8, SceneValue, Show, TimeValue, UniverseId,
+    GroupLayout, MatrixEffect, MovementEffect, Rgb8, Scene, SceneValue, Show, Target, TimeValue,
+    UniverseId,
 };
 use wasm_bindgen::prelude::*;
 
@@ -56,15 +57,39 @@ impl ShowView {
         scene_channels(&self.show, self.compiled(), FunctionId(id))
     }
 
-    pub fn add_scene_values_of(&self, values: &str, incoming: &str) -> Result<String, String> {
-        let values: Vec<SceneValue> = parse(values, "scene values")?;
+    pub fn add_scene_values_of(&self, scene: &str, incoming: &str) -> Result<String, String> {
+        let scene: Scene = parse(scene, "scene")?;
         let incoming: Vec<SceneValue> = parse(incoming, "scene values")?;
         Ok(to_json(&scene_edit::add_scene_values(
             &self.show,
             self.compiled(),
-            &values,
+            &scene,
             &incoming,
         )))
+    }
+
+    pub fn add_scene_members_of(&self, scene: &str, lights: &str) -> Result<String, String> {
+        let scene: Scene = parse(scene, "scene")?;
+        let lights: Vec<Target> = parse(lights, "lights")?;
+        Ok(to_json(&scene_edit::add_scene_members(
+            &self.show, &scene, &lights,
+        )))
+    }
+
+    pub fn remove_scene_member_of(&self, scene: &str, light: &str) -> Result<String, String> {
+        let scene: Scene = parse(scene, "scene")?;
+        let light: Target = parse(light, "light")?;
+        Ok(to_json(&scene_edit::remove_scene_member(
+            &self.show, &scene, light,
+        )))
+    }
+
+    pub fn scene_lights_of(&self, id: u32) -> Option<SceneLights> {
+        let klight_model::FunctionKind::Scene(scene) = &self.show.function(FunctionId(id))?.kind
+        else {
+            return None;
+        };
+        Some(inspect::scene_lights(&self.show, scene))
     }
 
     pub fn function_color_of(&self, id: u32) -> Option<Color> {
@@ -76,7 +101,7 @@ impl ShowView {
         let klight_model::FunctionKind::Scene(scene) = &f.kind else {
             return None;
         };
-        inspect::scene_value_color(&self.show, scene.values.get(index)?)
+        inspect::scene_value_color(&self.show, &scene.members, scene.values.get(index)?)
     }
 
     pub fn group_layout_of(&self, group: u32) -> Option<GroupLayout> {
@@ -158,11 +183,27 @@ impl ShowView {
         self.scene_channels_of(id).map(|p| to_json(&p))
     }
 
-    /// JSON `SceneValue[]`: scene `values` after adding `incoming` (both JSON
-    /// `SceneValue[]`).
-    pub fn add_scene_values(&self, values: &str, incoming: &str) -> Result<String, JsError> {
-        self.add_scene_values_of(values, incoming)
+    /// JSON `Scene`: `scene` after adding `incoming` (JSON `SceneValue[]`).
+    pub fn add_scene_values(&self, scene: &str, incoming: &str) -> Result<String, JsError> {
+        self.add_scene_values_of(scene, incoming)
             .map_err(|e| JsError::new(&e))
+    }
+
+    /// JSON `Scene`: `scene` with more `lights` (JSON `Target[]`).
+    pub fn add_scene_members(&self, scene: &str, lights: &str) -> Result<String, JsError> {
+        self.add_scene_members_of(scene, lights)
+            .map_err(|e| JsError::new(&e))
+    }
+
+    /// JSON `Scene`: `scene` without one of its lights (JSON `Target`).
+    pub fn remove_scene_member(&self, scene: &str, light: &str) -> Result<String, JsError> {
+        self.remove_scene_member_of(scene, light)
+            .map_err(|e| JsError::new(&e))
+    }
+
+    /// JSON `SceneLights`, or undefined if the function is not a scene.
+    pub fn scene_lights(&self, id: u32) -> Option<String> {
+        self.scene_lights_of(id).map(|l| to_json(&l))
     }
 
     /// Linear RGB `[r, g, b]` of the color a function shows (first color its

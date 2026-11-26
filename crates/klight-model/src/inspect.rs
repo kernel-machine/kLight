@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::attributes::{AttributeValue, Color};
 use crate::fixture_def::{Attribute, CapabilityKind, ChannelByte};
-use crate::function::{ChannelRef, FunctionKind, SceneValue, Target, ValueSource};
+use crate::function::{ChannelRef, FunctionKind, Scene, SceneValue, Target, ValueSource};
 use crate::ids::{FixtureId, FunctionId, UniverseId};
 use crate::patch::{PatchedFixture, UNIVERSE_SIZE};
 use crate::show::Show;
@@ -264,21 +264,30 @@ pub fn color_choices(show: &Show, fixtures: &[FixtureId]) -> ColorChoices {
 pub struct ValueSupport {
     pub intensity: bool,
     pub color: bool,
-    /// Pan and tilt (also fans).
+    /// Pan or tilt, in either of the two ways below.
     pub position: bool,
+    /// Pan and tilt in degrees (also fans).
+    pub position_degrees: bool,
+    /// Pan or tilt without a range in degrees: plain DMX values.
+    pub position_dmx: bool,
     pub gobo: bool,
     pub prism: bool,
     pub zoom: bool,
-    /// Strobe and shutter.
+    /// A strobe or shutter channel, in either of the two ways below.
     pub strobe: bool,
+    /// A strobe in hertz.
+    pub strobe_hz: bool,
+    /// A shutter without frequencies: plain DMX values.
+    pub strobe_dmx: bool,
 }
 
 /// What `fixtures` can do, following how the engine resolves each value: an
 /// intensity needs a dimmer or color emitters (a virtual dimmer scales them),
-/// a color needs mixing channels or a color wheel, a position a pan or tilt
-/// channel with a range in degrees, a zoom a zoom channel with a range in
-/// degrees, and the rest their own channel. Same per-fixture limit as
-/// [`color_choices`].
+/// a color needs mixing channels or a color wheel, a zoom a zoom channel with
+/// a range in degrees, and the rest their own channel. A position is given in
+/// degrees when the definition has the range of the fixture's pan and tilt, and
+/// a strobe in hertz when its shutter channel tells frequencies; otherwise they
+/// take plain DMX values. Same per-fixture limit as [`color_choices`].
 pub fn value_support(show: &Show, fixtures: &[FixtureId]) -> ValueSupport {
     let mut s = ValueSupport::default();
     for id in fixtures {
@@ -292,13 +301,30 @@ pub fn value_support(show: &Show, fixtures: &[FixtureId]) -> ValueSupport {
         let zoom_span = physical.zoom_max_deg - physical.zoom_min_deg;
         s.intensity |= has(Attribute::Dimmer) || attributes.iter().any(|a| a.is_additive_color());
         s.color |= attributes.iter().any(|a| mixes_color(*a)) || has(Attribute::ColorWheel);
-        s.position |= (has(Attribute::Pan) && physical.pan_max_deg > 0.0)
-            || (has(Attribute::Tilt) && physical.tilt_max_deg > 0.0);
+        let (pan, tilt) = (has(Attribute::Pan), has(Attribute::Tilt));
+        if pan || tilt {
+            let ranges =
+                (!pan || physical.pan_max_deg > 0.0) && (!tilt || physical.tilt_max_deg > 0.0);
+            s.position_degrees |= ranges;
+            s.position_dmx |= !ranges;
+        }
         s.gobo |= has(Attribute::Gobo);
         s.prism |= has(Attribute::Prism);
         s.zoom |= has(Attribute::Zoom) && zoom_span.is_finite() && zoom_span > 0.0;
-        s.strobe |= has(Attribute::Shutter);
+        // The channel the engine writes a strobe on: the first shutter.
+        let shutter = show.definition_and_mode(f).and_then(|(def, mode)| {
+            mode.channels
+                .iter()
+                .filter_map(|&c| def.channels.get(usize::from(c)))
+                .find(|c| c.attribute == Attribute::Shutter)
+        });
+        if let Some(shutter) = shutter {
+            s.strobe_hz |= shutter.gives_strobe_hz();
+            s.strobe_dmx |= !shutter.gives_strobe_hz();
+        }
     }
+    s.position = s.position_degrees || s.position_dmx;
+    s.strobe = s.strobe_hz || s.strobe_dmx;
     s
 }
 
@@ -400,6 +426,56 @@ pub struct SceneFixtureChannels {
     pub channels: Vec<SceneChannel>,
 }
 
+/// One group or fixture added to a scene, with its patched fixtures.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct SceneMember {
+    pub target: Target,
+    pub fixtures: Vec<FixtureId>,
+}
+
+/// The lights of a scene.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct SceneLights {
+    pub members: Vec<SceneMember>,
+    /// Every fixture of the members once, in member order.
+    pub fixtures: Vec<FixtureId>,
+}
+
+/// The fixtures a target names, each once. None for [`Target::Scene`], which
+/// only means something inside its scene.
+pub fn target_fixtures(show: &Show, target: &Target) -> Vec<FixtureId> {
+    match *target {
+        Target::Fixture { id } | Target::Head { id, .. } => vec![id],
+        Target::Group { id } => {
+            let mut out = Vec::new();
+            for m in show.group(id).iter().flat_map(|g| &g.members) {
+                if !out.contains(&m.fixture) {
+                    out.push(m.fixture);
+                }
+            }
+            out
+        }
+        Target::Scene => Vec::new(),
+    }
+}
+
+pub fn scene_lights(show: &Show, scene: &Scene) -> SceneLights {
+    let mut out = SceneLights::default();
+    for &target in &scene.members {
+        let mut fixtures = target_fixtures(show, &target);
+        fixtures.retain(|&f| show.fixture(f).is_some());
+        for &f in &fixtures {
+            if !out.fixtures.contains(&f) {
+                out.fixtures.push(f);
+            }
+        }
+        out.members.push(SceneMember { target, fixtures });
+    }
+    out
+}
+
 /// The color a function shows (for a button or a swatch): the first color
 /// its scene sets, explicitly or through a color palette, with the palette
 /// values of the first fixture the value targets (as the engine resolves
@@ -411,12 +487,12 @@ pub fn function_color(show: &Show, id: FunctionId) -> Option<Color> {
     scene
         .values
         .iter()
-        .find_map(|sv| scene_value_color(show, sv))
+        .find_map(|sv| scene_value_color(show, &scene.members, sv))
 }
 
-/// The color one scene value sets, explicitly or through a color palette
-/// (values of the first fixture it targets), or `None`.
-pub fn scene_value_color(show: &Show, sv: &SceneValue) -> Option<Color> {
+/// The color one value of a scene with these `members` sets, explicitly or
+/// through a color palette (values of the first fixture it targets), or `None`.
+pub fn scene_value_color(show: &Show, members: &[Target], sv: &SceneValue) -> Option<Color> {
     match &sv.value {
         ValueSource::Explicit {
             value: AttributeValue::Color { color },
@@ -424,7 +500,11 @@ pub fn scene_value_color(show: &Show, sv: &SceneValue) -> Option<Color> {
         ValueSource::Explicit { .. } | ValueSource::Channel { .. } => None,
         ValueSource::Palette { id } => {
             let palette = show.palette(*id)?;
-            let values = match first_fixture(show, &sv.target) {
+            let first = match sv.target {
+                Target::Scene => members.iter().find_map(|m| first_fixture(show, m)),
+                ref target => first_fixture(show, target),
+            };
+            let values = match first {
                 Some(f) => palette.values_for(f),
                 None => palette.generic.as_slice(),
             };
@@ -440,6 +520,7 @@ fn first_fixture(show: &Show, target: &Target) -> Option<FixtureId> {
     match target {
         Target::Fixture { id } | Target::Head { id, .. } => Some(*id),
         Target::Group { id } => show.group(*id)?.members.first().map(|m| m.fixture),
+        Target::Scene => None,
     }
 }
 
@@ -692,14 +773,20 @@ mod tests {
             s.fixtures[i].definition = crate::ids::DefinitionKey::new("G", model);
         }
         let ids = |v: &[u32]| v.iter().map(|&n| FixtureId(n)).collect::<Vec<_>>();
+        // Degrees and hertz only where the definition gives them: the shutter
+        // of fixture 4 tells no frequencies.
         let some = |intensity, color, position, gobo, prism, zoom, strobe| ValueSupport {
             intensity,
             color,
             position,
+            position_degrees: position,
+            position_dmx: false,
             gobo,
             prism,
             zoom,
             strobe,
+            strobe_hz: false,
+            strobe_dmx: strobe,
         };
         assert_eq!(
             value_support(&s, &ids(&[1])),
@@ -728,10 +815,26 @@ mod tests {
         assert_eq!(value_support(&s, &[]), ValueSupport::default());
         assert_eq!(value_support(&s, &ids(&[99])), ValueSupport::default());
 
-        // Regression: the engine ignores a position or a zoom without a
-        // range in degrees, so they must not be offered.
+        // A strobe in hertz needs the frequencies of a range.
+        if let Some(shutter) = s.definitions.last_mut().and_then(|d| d.channels.last_mut()) {
+            shutter.capabilities.push(crate::fixture_def::Capability {
+                min: 10,
+                max: 255,
+                name: "Strobe".into(),
+                kind: CapabilityKind::Strobe {
+                    hz_min: Some(1.0),
+                    hz_max: Some(20.0),
+                },
+            });
+        }
+        let hz = value_support(&s, &ids(&[4]));
+        assert!(hz.strobe_hz && !hz.strobe_dmx && hz.strobe);
+
+        // Without a range in degrees the engine ignores a position or a zoom:
+        // the position is offered as plain DMX values, the zoom not at all.
         s.definitions[0].physical.pan_max_deg = 0.0;
-        assert!(!value_support(&s, &ids(&[1])).position);
+        let raw = value_support(&s, &ids(&[1]));
+        assert!(raw.position_dmx && !raw.position_degrees && raw.position);
         if let Some(b) = s.definitions.last_mut() {
             b.physical.zoom_max_deg = b.physical.zoom_min_deg;
         }

@@ -92,6 +92,8 @@ export type { RuntimeState } from "./RuntimeState";
 export type { Scene } from "./Scene";
 export type { SceneChannel } from "./SceneChannel";
 export type { SceneFixtureChannels } from "./SceneFixtureChannels";
+export type { SceneLights } from "./SceneLights";
+export type { SceneMember } from "./SceneMember";
 export type { SceneValue } from "./SceneValue";
 export type { SerialPortInfo } from "./SerialPortInfo";
 export type { ServerMessage } from "./ServerMessage";
