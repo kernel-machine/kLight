@@ -847,7 +847,37 @@ test('virtual console: widgets are resized by their bottom right corner', async 
   await expect(page.locator('.w .resize').first()).toBeVisible();
   await page.getByRole('button', { name: 'Design mode' }).click();
   await expect(page.locator('.w .resize')).toHaveCount(0);
-  page.once('dialog', (d) => d.accept(''));
   await page.getByRole('button', { name: 'SHOW mode' }).click();
   await expect(page.locator('.w .resize').first()).toBeVisible();
+});
+
+test('the master bar stays still when the mode or the blackout changes', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByText('Engine: connected')).toBeVisible();
+  const bar = page.getByLabel('Master controls');
+  const button = (name: string) => bar.getByRole('button', { name, exact: true });
+  /** Where every control of the bar is, and how tall. */
+  const layout = () =>
+    bar.locator('button, .gm').evaluateAll((all) => all.map((e) => [e.getBoundingClientRect().top, e.getBoundingClientRect().height]));
+  await expect(button('Design mode')).toBeVisible();
+  const before = await layout();
+  // This show has no PIN: nothing is ever asked.
+  const dialogs: string[] = [];
+  page.on('dialog', (d) => {
+    dialogs.push(d.message());
+    void d.accept('');
+  });
+
+  await button('Blackout').click();
+  await expect(button('BLACKOUT ON')).toBeVisible();
+  expect(await layout()).toEqual(before);
+  await button('Design mode').click();
+  await expect(button('SHOW mode')).toBeVisible();
+  expect(await layout()).toEqual(before);
+
+  await button('BLACKOUT ON').click();
+  await expect(button('Blackout')).toBeVisible();
+  await button('SHOW mode').click();
+  await expect(button('Design mode')).toBeVisible();
+  expect(dialogs).toEqual([]);
 });

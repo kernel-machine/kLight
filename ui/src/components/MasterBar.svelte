@@ -1,19 +1,20 @@
 <script lang="ts">
   // Blackout and grand master: always reachable.
-  import { app, run } from '../lib/app.svelte';
+  import { app, client, notify, run } from '../lib/app.svelte';
+  import { enterDesignMode } from '../lib/designMode';
   import { createBeatLamp } from '../lib/beatLamp.svelte';
 
   const rt = $derived(app.s.runtime?.state);
   const disabled = $derived(app.s.connection !== 'connected' || app.s.permission === 'read_only');
-  let pin = $state('');
   const beat = createBeatLamp();
 
   async function toggleMode() {
     if (!rt) return;
     if (rt.mode === 'Show') {
-      const entered = pin || (window.prompt('PIN for Design mode (leave empty if none)') ?? '');
-      await run({ type: 'set_mode', mode: 'Design', pin: entered || null });
-      pin = '';
+      await enterDesignMode(
+        (command) => client.command(command),
+        () => window.prompt('PIN for Design mode'),
+      ).catch((e: Error) => notify(e.message, 'error'));
     } else {
       await run({ type: 'set_mode', mode: 'Show', pin: null });
     }
@@ -57,6 +58,8 @@
 <style>
   .master { display: flex; flex-direction: column; gap: 8px; padding: 10px 8px; width: 112px; background: var(--panel); border-left: 1px solid var(--border); min-height: 0; }
   .master button { width: 100%; padding: 10px 4px; font-weight: 600; }
+  /* Room for two lines: their text wraps in some states and the bar stays still. */
+  .master .mode, .master .blackout { flex: none; height: 60px; }
   .blackout.on { background: var(--danger); border-color: var(--danger); color: #fff; }
   .mode.show { background: var(--warn); color: #000; border-color: var(--warn); font-weight: 800; }
   .tap { display: flex; flex-direction: column; align-items: center; gap: 2px; }
