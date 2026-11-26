@@ -1186,3 +1186,61 @@ test('a scene is started, previewed on the lights and undone from its editor', a
   await page.getByRole('button', { name: 'SHOW mode' }).click();
   await expect(page.getByRole('button', { name: 'Undo' })).toBeEnabled();
 });
+
+test('scene values with no effect, highlight, times per attribute and tests with fades', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByText('Engine: connected')).toBeVisible();
+  await page.getByRole('button', { name: 'Stop all' }).click();
+  await page.getByRole('button', { name: 'FX', exact: true }).click();
+  await page.getByRole('button', { name: 'New scene', exact: true }).click();
+  const name = page.locator('.editor input').first();
+  await name.fill('Overrides');
+  await name.press('Enter');
+  await addLights(page, 'Wheel spot');
+  const channels = page.getByRole('group', { name: 'Scene channels' });
+  const strip = channels.locator('.strip', { has: page.getByLabel('Wheel spot: Dimmer value', { exact: true }) });
+  const output = strip.locator('.now');
+  await expect(output).toHaveText('0');
+
+  // Highlight: the chosen lights at full until it is turned off; nothing stored.
+  const highlight = page.getByRole('button', { name: 'Highlight: All lights' });
+  await highlight.click();
+  await expect(output).toHaveText('255');
+  await highlight.click();
+  await expect(output).toHaveText('0');
+  await expect(page.locator('tr', { hasText: 'Intensity' })).toHaveCount(0);
+
+  // A value to all lights, then one to the fixture: the last one wins, the
+  // first has no effect and can be removed without changing the lights.
+  const level = page.getByRole('slider', { name: 'Intensity', exact: true });
+  await level.fill('40');
+  await page.getByRole('button', { name: 'Add to scene' }).click();
+  await page.getByRole('group', { name: 'Apply to' }).getByRole('button', { name: 'Wheel spot', exact: true }).click();
+  await level.fill('100');
+  await page.getByRole('button', { name: 'Add to scene' }).click();
+  const first = page.locator('tr', { hasText: 'Intensity 40%' });
+  await expect(first).toHaveClass(/\bcovered\b/);
+  await expect(first).toContainText('no effect');
+  await expect(page.locator('tr', { hasText: 'Intensity 100%' })).not.toHaveClass(/\bcovered\b/);
+  await page.getByRole('button', { name: 'Remove 1 value with no effect' }).click();
+  await expect(first).toHaveCount(0);
+  await expect(page.locator('tr', { hasText: 'Intensity 100%' })).toHaveCount(1);
+
+  // Own times for the intensity, and the delay spread over the lights.
+  await page.getByText('Times per attribute').click();
+  await page.getByLabel('Intensity: own times').check();
+  await expect(page.locator('.kind', { hasText: 'Intensity' }).getByRole('button', { name: /^Fade in/ })).toBeVisible();
+  await page.getByLabel('Delay over the lights').selectOption('from_center');
+  await expect(page.getByRole('button', { name: 'Step: 1/4 beat' })).toBeVisible();
+
+  // Starting the scene pauses the live preview, so its own fades show.
+  const live = page.getByLabel('Live preview on the lights');
+  await live.check();
+  const header = page.locator('.editor');
+  await header.getByRole('button', { name: 'Start', exact: true }).click();
+  await expect(page.getByText('Paused while the scene was started')).toBeVisible();
+  await expect(output).toHaveText('255');
+  await header.getByRole('button', { name: 'Stop', exact: true }).click();
+  await expect(output).toHaveText('0');
+  await live.uncheck();
+});
