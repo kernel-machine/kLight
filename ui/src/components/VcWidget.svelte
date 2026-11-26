@@ -182,7 +182,7 @@
       step="0.005"
       value={level}
       disabled={design}
-      class="vertical"
+      class="fader vertical"
       oninput={(e) => run({ type: 'widget_set_value', id: widget.id, value: Number(e.currentTarget.value) })}
     />
     <div class="val">{Math.round(level * 100)}%</div>
@@ -229,5 +229,5 @@
   .label { font-size: 12px; padding: 2px 4px; text-align: center; }
   .big { font-size: 22px; font-weight: 700; }
   .val { font-size: 11px; color: var(--muted); }
-  .vertical { writing-mode: vertical-lr; direction: rtl; flex: 1; min-height: 0; width: 32px; }
+  .vertical { flex: 1; min-height: 0; width: min(52px, calc(100% - 8px)); }
 </style>

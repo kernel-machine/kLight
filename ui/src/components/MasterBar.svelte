@@ -40,6 +40,7 @@
   <label class="gm">
     <span class="val">{Math.round((rt?.grand_master ?? 1) * 100)}%</span>
     <input
+      class="fader"
       type="range"
       min="0"
       max="1"
@@ -64,7 +65,7 @@
   .tap.beat .bpm { color: inherit; }
   .bpm { font-size: 11px; font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; }
   .gm { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; min-height: 160px; border-top: 1px solid var(--border); padding-top: 8px; }
-  .gm input { flex: 1; writing-mode: vertical-lr; direction: rtl; width: 44px; min-height: 120px; }
+  .gm input { flex: 1; width: 56px; min-height: 120px; --cap-h: 28px; }
   .val { font-variant-numeric: tabular-nums; font-weight: 700; }
   .title { font-weight: 800; color: var(--muted); }
 </style>

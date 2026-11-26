@@ -82,6 +82,7 @@
   <div class="name">{fixture}</div>
   <div class="ch">{channel}</div>
   <input
+    class="fader"
     type="range"
     min="0"
     max="255"
@@ -124,7 +125,7 @@
   .addr { font-weight: 700; font-variant-numeric: tabular-nums; font-size: 12px; }
   .name, .ch { font-size: 9px; color: var(--muted); width: 100%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; height: 11px; }
   .name { color: var(--text); }
-  input[type='range'] { writing-mode: vertical-lr; direction: rtl; height: 120px; width: 24px; }
+  .fader { height: 130px; width: 36px; --cap-h: 20px; }
   .num { width: 48px; padding: 2px; text-align: center; font-size: 12px; }
   .now { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
   .now.differs { color: var(--warn); font-weight: 700; }
