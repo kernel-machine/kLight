@@ -31,6 +31,7 @@ export type { CommandOutcome } from "./CommandOutcome";
 export type { CommandResult } from "./CommandResult";
 export type { CommandSource } from "./CommandSource";
 export type { ControlKey } from "./ControlKey";
+export type { CoveredValue } from "./CoveredValue";
 export type { Cue } from "./Cue";
 export type { CueFollow } from "./CueFollow";
 export type { CueList } from "./CueList";

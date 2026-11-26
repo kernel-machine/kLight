@@ -2,12 +2,12 @@
 //! values a new one replaces depends on the channels the engine resolves them
 //! to.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
-use klight_model::inspect::target_fixtures;
+use klight_model::inspect::{target_fixtures, CoveredValue};
 use klight_model::{ChannelRef, FixtureId, Scene, SceneValue, Show, Target, ValueSource};
 
-use crate::compile::CompiledShow;
+use crate::compile::{CompiledShow, COARSE_BYTE, FINE_BYTE, NO_ADDR};
 
 /// `values` with one channel of a fixture set by hand to `value`, or released
 /// (back to what the other values set) when `value` is `None`.
@@ -163,5 +163,93 @@ pub fn remove_scene_member(show: &Show, scene: &Scene, light: Target) -> Scene {
         Target::Group { .. } => v.target != light,
         Target::Scene => true,
     });
+    out
+}
+
+/// The bytes each value of `scene` writes on its own, per logical channel. A
+/// channel without a fine byte counts as whole whichever byte is set.
+fn written_bytes(
+    show: &Show,
+    compiled: &CompiledShow,
+    scene: &Scene,
+    value: &SceneValue,
+) -> BTreeMap<u32, u8> {
+    let (entries, _) = compiled.resolve_values(show, std::slice::from_ref(value), &scene.members);
+    entries
+        .iter()
+        .map(|e| {
+            let single = compiled
+                .channels
+                .get(e.channel as usize)
+                .is_some_and(|c| c.fine == NO_ADDR);
+            let bytes = if single {
+                COARSE_BYTE | FINE_BYTE
+            } else {
+                e.set
+            };
+            (e.channel, bytes)
+        })
+        .collect()
+}
+
+/// The values of `scene` that later values override, as the engine resolves
+/// them (the last value wins on every channel byte). Values that write nothing
+/// (e.g. a gobo the fixtures lack) are not listed.
+pub fn covered_values(show: &Show, compiled: &CompiledShow, scene: &Scene) -> Vec<CoveredValue> {
+    let written: Vec<BTreeMap<u32, u8>> = scene
+        .values
+        .iter()
+        .map(|v| written_bytes(show, compiled, scene, v))
+        .collect();
+    let mut out = Vec::new();
+    for (i, mine) in written.iter().enumerate() {
+        if mine.is_empty() {
+            continue;
+        }
+        let mut by = Vec::new();
+        let mut covered: BTreeMap<u32, u8> = BTreeMap::new();
+        for (j, later) in written.iter().enumerate().skip(i + 1) {
+            let mut overlaps = false;
+            for (channel, &bytes) in mine {
+                let common = later.get(channel).map_or(0, |&b| b & bytes);
+                if common != 0 {
+                    overlaps = true;
+                    *covered.entry(*channel).or_insert(0) |= common;
+                }
+            }
+            if overlaps {
+                by.push(u32::try_from(j).unwrap_or(u32::MAX));
+            }
+        }
+        if by.is_empty() {
+            continue;
+        }
+        let full = mine
+            .iter()
+            .all(|(channel, &bytes)| covered.get(channel).is_some_and(|&c| c & bytes == bytes));
+        out.push(CoveredValue {
+            index: u32::try_from(i).unwrap_or(u32::MAX),
+            by,
+            full,
+        });
+    }
+    out
+}
+
+/// `scene` without the values that later values override entirely.
+pub fn remove_covered_values(show: &Show, compiled: &CompiledShow, scene: &Scene) -> Scene {
+    let gone: BTreeSet<usize> = covered_values(show, compiled, scene)
+        .into_iter()
+        .filter(|c| c.full)
+        .map(|c| c.index as usize)
+        .collect();
+    let mut out = scene.clone();
+    out.values = scene
+        .values
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !gone.contains(i))
+        .map(|(_, v)| v.clone())
+        .collect();
     out
 }
