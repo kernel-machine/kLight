@@ -14,9 +14,15 @@ From a tablet or phone open `http://<pc-address>:9400/?token=<token>`.
 - **Fixtures**: universes, patch from `.qxf` definitions (the same ones used by
   QLC+), automatic next free address, conflict warnings, head orientation
   (inverted or swapped pan/tilt, upside-down mounting), groups with order and grid.
-- **FX**: scenes (fades, delays, fades spread over the group), chasers (times
-  in ms or beats), cue lists with GO/Back/Pause and *move in black*, movement
-  effects and matrix effects, palettes.
+- **FX**: scenes (fades, delays, delays spread over the group, own times per
+  attribute), chasers (times in ms or beats), cue lists with GO/Back/Pause and
+  *move in black*, movement effects and matrix effects, palettes.
+  In the scene editor, values apply in order: on every channel the last one
+  wins, whoever it goes to. A value that later ones override entirely is
+  greyed out as "no effect" and can be removed in one click. *Highlight* lights
+  the chosen fixtures at full to find them on stage; pan and tilt can be
+  dragged on an XY pad (*Fine*, or Shift, moves ten times slower). *Start* runs
+  the scene with its own times and pauses the live preview.
 - **Virtual Console**: in Design mode add and move widgets; in Show mode the
   widgets are live and the structure is locked.
 - **Simple Desk**: tap a group or some fixtures, then an intention (intensity,
