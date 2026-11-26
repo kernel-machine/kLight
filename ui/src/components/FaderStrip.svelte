@@ -6,7 +6,6 @@
 
   let {
     address,
-    fixture,
     channel,
     attribute,
     value,
@@ -30,8 +29,6 @@
   }: {
     /** Top line: the DMX address. */
     address: string | number;
-    /** Fixture name (shown on its first channel only). */
-    fixture: string;
     channel: string;
     attribute: Attribute | null;
     value: number;
@@ -79,7 +76,6 @@
   {:else}
     <div class="icon">{#if attribute !== null}<ChannelIcon {attribute} />{/if}</div>
   {/if}
-  <div class="name">{fixture}</div>
   <div class="ch">{channel}</div>
   <input
     class="fader"
@@ -123,8 +119,7 @@
   .choose:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 15%, transparent); }
   .caret { font-size: 8px; color: var(--muted); }
   .addr { font-weight: 700; font-variant-numeric: tabular-nums; font-size: 12px; }
-  .name, .ch { font-size: 9px; color: var(--muted); width: 100%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; height: 11px; }
-  .name { color: var(--text); }
+  .ch { font-size: 9px; color: var(--muted); width: 100%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; height: 11px; }
   .fader { height: 130px; width: 36px; --cap-h: 20px; }
   .num { width: 48px; padding: 2px; text-align: center; font-size: 12px; }
   .now { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }

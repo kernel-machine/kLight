@@ -6,6 +6,7 @@
   import { channelPresets, sceneChannels } from '../lib/core';
   import { hasPresets, presetAt } from '../lib/channelIcon';
   import FaderStrip from './FaderStrip.svelte';
+  import FixtureGroup from './FixtureGroup.svelte';
   import PresetPicker from './PresetPicker.svelte';
   import type { ChannelRef, SceneChannel, SceneFixtureChannels } from '../lib/protocol';
 
@@ -67,37 +68,38 @@
 {:else}
   <div class="strips" role="group" aria-label="Scene channels">
     {#each fixtures as f, n (f.fixture)}
-      {#each f.channels as c, i (JSON.stringify(c.channel))}
-        {@const key = keyOf(f.fixture, c)}
-        {@const v = local[key] ?? c.value}
-        {@const presets = presetsOf(f, c)}
-        {@const choosable = hasPresets(presets)}
-        {@const preset = choosable ? presets[presetAt(presets, v)] : undefined}
-        <div class="slot">
-          <FaderStrip
-            address={c.address ?? 'V'}
-            fixture={i === 0 ? f.fixture_name : ''}
-            channel={preset?.name ?? c.channel_name}
-            attribute={c.attribute}
-            value={v}
-            label="{f.fixture_name}: {c.channel_name}"
-            title="{f.fixture_name} — {c.channel_name}{preset ? `: ${preset.name}` : ''}{c.locked ? ' (service channel: not stored in scenes)' : ''}{c.origin === 'paired' ? ' (held at its default: the other byte of this 16-bit channel is set by hand)' : ''}"
-            alt={n % 2 === 1}
-            first={i === 0}
-            set={c.origin === 'manual' || key in local}
-            scene={c.origin === 'value'}
-            unset={c.origin === 'unset' && !(key in local)}
-            paired={c.origin === 'paired' && !(key in local)}
-            disabled={c.locked}
-            now={live(f.universe, c.address)}
-            onchoose={choosable ? (e) => openPicker(e, f, c) : undefined}
-            oninput={(value) => (local[key] = value)}
-            onslideend={(value) => commit(f.fixture, c, value)}
-            onentry={(value) => commit(f.fixture, c, value)}
-            onrelease={() => release(f.fixture, c)}
-          />
-        </div>
-      {/each}
+      <FixtureGroup name={f.fixture_name} alt={n % 2 === 1}>
+        {#each f.channels as c, i (JSON.stringify(c.channel))}
+          {@const key = keyOf(f.fixture, c)}
+          {@const v = local[key] ?? c.value}
+          {@const presets = presetsOf(f, c)}
+          {@const choosable = hasPresets(presets)}
+          {@const preset = choosable ? presets[presetAt(presets, v)] : undefined}
+          <div class="slot">
+            <FaderStrip
+              address={c.address ?? 'V'}
+              channel={preset?.name ?? c.channel_name}
+              attribute={c.attribute}
+              value={v}
+              label="{f.fixture_name}: {c.channel_name}"
+              title="{f.fixture_name} — {c.channel_name}{preset ? `: ${preset.name}` : ''}{c.locked ? ' (service channel: not stored in scenes)' : ''}{c.origin === 'paired' ? ' (held at its default: the other byte of this 16-bit channel is set by hand)' : ''}"
+              alt={n % 2 === 1}
+              first={i === 0}
+              set={c.origin === 'manual' || key in local}
+              scene={c.origin === 'value'}
+              unset={c.origin === 'unset' && !(key in local)}
+              paired={c.origin === 'paired' && !(key in local)}
+              disabled={c.locked}
+              now={live(f.universe, c.address)}
+              onchoose={choosable ? (e) => openPicker(e, f, c) : undefined}
+              oninput={(value) => (local[key] = value)}
+              onslideend={(value) => commit(f.fixture, c, value)}
+              onentry={(value) => commit(f.fixture, c, value)}
+              onrelease={() => release(f.fixture, c)}
+            />
+          </div>
+        {/each}
+      </FixtureGroup>
     {/each}
   </div>
   <p class="muted small">
@@ -123,7 +125,7 @@
 
 <style>
   /* One row only: it scrolls sideways to reach every channel. */
-  .strips { display: flex; gap: 4px; overflow-x: auto; padding-bottom: 8px; }
+  .strips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; }
   .slot { flex: 0 0 60px; display: grid; }
   .small { font-size: 12px; }
 </style>

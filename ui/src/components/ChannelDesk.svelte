@@ -5,6 +5,8 @@
   import { app, client, run } from '../lib/app.svelte';
   import { channelMap, UNIVERSE_SIZE } from '../lib/show';
   import FaderStrip from './FaderStrip.svelte';
+  import FixtureGroup from './FixtureGroup.svelte';
+  import { fixtureRuns } from '../lib/fixtureRuns';
   import PresetPicker from './PresetPicker.svelte';
   import { channelPresets } from '../lib/core';
   import { hasPresets, presetAt } from '../lib/channelIcon';
@@ -29,6 +31,7 @@
       filter === 'patched' ? map[a - 1] !== null : filter === 'set' ? overrides.has(a) : true,
     ),
   );
+  const runs = $derived(fixtureRuns(addresses, map));
 
   // One command per channel per animation frame while dragging.
   const pending = new Map<number, number | null>();
@@ -89,31 +92,36 @@
 </div>
 
 <div class="strips">
-  {#each addresses as a (a)}
-    {@const info = map[a - 1]}
-    {@const set = overrides.has(a) || local.has(a)}
-    {@const v = valueOf(a)}
-    {@const presets = info ? channelPresets(show, universe, a) : []}
-    {@const choosable = hasPresets(presets)}
-    {@const preset = choosable ? presets[presetAt(presets, v)] : undefined}
-    <FaderStrip
-      address={a}
-      fixture={info?.offset === 0 ? info.fixture_name : ''}
-      channel={preset?.name ?? info?.channel_name ?? '—'}
-      attribute={info?.attribute ?? null}
-      value={v}
-      label="Channel {a}"
-      subject="channel {a}"
-      title={info ? `${info.fixture_name} — ${info.channel_name}${preset ? `: ${preset.name}` : ''}` : 'Not patched'}
-      patched={info !== null}
-      alt={info !== null && info.fixture_index % 2 === 1}
-      first={info?.offset === 0}
-      {set}
-      onchoose={choosable ? (e) => openPicker(e, a) : undefined}
-      oninput={(value) => send(a, value)}
-      onentry={(value) => send(a, value)}
-      onrelease={() => send(a, null)}
-    />
+  {#each runs as r (r.key)}
+    <FixtureGroup name={r.name} patched={r.patched} alt={r.alt} wrap>
+      {#each r.addresses as a (a)}
+        {@const info = map[a - 1]}
+        {@const set = overrides.has(a) || local.has(a)}
+        {@const v = valueOf(a)}
+        {@const presets = info ? channelPresets(show, universe, a) : []}
+        {@const choosable = hasPresets(presets)}
+        {@const preset = choosable ? presets[presetAt(presets, v)] : undefined}
+        <div class="slot">
+          <FaderStrip
+            address={a}
+            channel={preset?.name ?? info?.channel_name ?? '—'}
+            attribute={info?.attribute ?? null}
+            value={v}
+            label="Channel {a}"
+            subject="channel {a}"
+            title={info ? `${info.fixture_name} — ${info.channel_name}${preset ? `: ${preset.name}` : ''}` : 'Not patched'}
+            patched={info !== null}
+            alt={info !== null && info.fixture_index % 2 === 1}
+            first={info?.offset === 0}
+            {set}
+            onchoose={choosable ? (e) => openPicker(e, a) : undefined}
+            oninput={(value) => send(a, value)}
+            onentry={(value) => send(a, value)}
+            onrelease={() => send(a, null)}
+          />
+        </div>
+      {/each}
+    </FixtureGroup>
   {/each}
 </div>
 
@@ -132,5 +140,6 @@
 
 <style>
   .toolbar { margin-bottom: 10px; }
-  .strips { display: grid; grid-template-columns: repeat(auto-fill, minmax(56px, 1fr)); gap: 4px; }
+  .strips { display: flex; flex-wrap: wrap; gap: 10px 6px; }
+  .slot { flex: 0 0 60px; display: grid; }
 </style>
