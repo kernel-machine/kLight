@@ -14,6 +14,18 @@ async function addLights(page: Page, ...boxes: string[]) {
   await expect(dialog).toHaveCount(0);
 }
 
+/**
+ * The lights of the scene (groups and fixtures added on their own), sorted:
+ * "Choose lights" lists them, each with a × to remove it.
+ */
+async function sceneLights(page: Page): Promise<string[]> {
+  const names = await page
+    .getByRole('group', { name: 'Apply to' })
+    .getByRole('button', { name: /^Remove .* from the scene$/ })
+    .evaluateAll((bs) => bs.map((b) => (b.getAttribute('aria-label') ?? '').replace(/^Remove (.*) from the scene$/, '$1')));
+  return names.sort();
+}
+
 /** Chooses what the next values of the scene go to: one group or one fixture. */
 async function applyTo(page: Page, chip: string) {
   const to = page.getByRole('group', { name: 'Apply to' });
@@ -921,7 +933,6 @@ test('a scene has its lights, and values for all of them or for some', async ({ 
   await page.getByRole('button', { name: 'New scene', exact: true }).click();
   const name = page.locator('.editor input').first();
   await expect(name).toHaveValue(/^Scene \d+$/);
-  const lights = page.getByRole('list', { name: 'Scene lights' }).locator('.light');
   const channels = page.getByRole('group', { name: 'Scene channels' });
   const fader = (label: string) => channels.getByLabel(`${label} value`, { exact: true });
   const strip = (label: string) => channels.locator('.strip', { has: page.getByLabel(`${label} value`, { exact: true }) });
@@ -941,7 +952,10 @@ test('a scene has its lights, and values for all of them or for some', async ({ 
   await expect(dialog.getByLabel('Select Dimmer 1', { exact: true })).toBeDisabled();
   await dialog.getByLabel('Select Spot 540 1', { exact: true }).check();
   await dialog.getByRole('button', { name: 'Add 2 lights' }).click();
-  await expect(lights).toHaveText(['Front', 'Spot 540 1']);
+  await expect.poll(() => sceneLights(page)).toEqual(['Front', 'Spot 540 1'].sort());
+  // One list: a fixture there through a group has no × of its own.
+  await expect(page.getByRole('button', { name: 'Remove Dimmer 1 from the scene' })).toHaveCount(0);
+  await expect(page.getByRole('group', { name: 'Apply to' }).getByRole('button', { name: 'Dimmer 1', exact: true })).toBeVisible();
 
   // A value goes to all lights unless some are chosen.
   await page.getByRole('button', { name: 'Add to scene' }).click();
@@ -960,7 +974,7 @@ test('a scene has its lights, and values for all of them or for some', async ({ 
   // Unless the box says otherwise: the value stays with the lights it had.
   await page.getByLabel('Lights added later take the values of all lights').uncheck();
   await addLights(page, 'Wheel spot');
-  await expect(lights).toHaveText(['Front', 'Spot 540 1', 'Spot 540 2', 'Wheel spot']);
+  await expect.poll(() => sceneLights(page)).toEqual(['Front', 'Spot 540 1', 'Spot 540 2', 'Wheel spot'].sort());
   await expect(strip('Wheel spot: Dimmer')).toHaveClass(/\bunset\b/);
   await expect(fader('Spot 540 2: Dimmer')).toHaveValue('255');
   await expect(page.locator('tr', { hasText: 'All lights' })).toHaveCount(0);
@@ -1003,7 +1017,7 @@ test('a scene has its lights, and values for all of them or for some', async ({ 
 
   // A removed light takes its values with it.
   await page.getByRole('button', { name: 'Remove Spot 540 1 from the scene' }).click();
-  await expect(lights).toHaveText(['Front', 'Spot 540 2', 'Wheel spot']);
+  await expect.poll(() => sceneLights(page)).toEqual(['Front', 'Spot 540 2', 'Wheel spot'].sort());
   await expect(zoom).toHaveText([/Wheel spot/]);
   await expect(page.locator('tr', { hasText: 'Spot 540 1' })).toHaveCount(0);
   await expect(fader('Spot 540 1: Dimmer')).toHaveCount(0);
@@ -1013,7 +1027,7 @@ test('a scene has its lights, and values for all of them or for some', async ({ 
   await page.reload();
   await page.getByRole('button', { name: 'FX', exact: true }).click();
   await page.getByRole('treeitem', { name: /Scene \d+/ }).last().click();
-  await expect(lights).toHaveText(['Front', 'Spot 540 2', 'Wheel spot']);
+  await expect.poll(() => sceneLights(page)).toEqual(['Front', 'Spot 540 2', 'Wheel spot'].sort());
   await expect(page.getByLabel('Lights added later take the values of all lights')).not.toBeChecked();
 });
 
@@ -1085,8 +1099,7 @@ test('a scene can be duplicated, and the copy changes on its own', async ({ page
 
   await page.getByRole('button', { name: 'Duplicate' }).click();
   await expect(name).toHaveValue('Original copy');
-  const lights = page.getByRole('list', { name: 'Scene lights' }).locator('.light');
-  await expect(lights).toHaveText(['Wheel spot']);
+  await expect.poll(() => sceneLights(page)).toEqual(['Wheel spot'].sort());
   await expect(values).toHaveCount(1);
 
   // Changing the copy leaves the original as it was.
@@ -1168,16 +1181,15 @@ test('a scene is started, previewed on the lights and undone from its editor', a
   await expect(output).toHaveText('0');
 
   // A light removed by mistake comes back.
-  const lights = page.getByRole('list', { name: 'Scene lights' }).locator('.light');
   await page.getByRole('button', { name: 'Remove Wheel spot from the scene' }).click();
-  await expect(lights).toHaveCount(0);
+  await expect.poll(() => sceneLights(page)).toEqual([]);
   await page.getByRole('button', { name: 'Undo' }).click();
-  await expect(lights).toHaveText(['Wheel spot']);
+  await expect.poll(() => sceneLights(page)).toEqual(['Wheel spot'].sort());
   await expect(page.locator('tr', { hasText: 'Intensity 100%' })).toHaveCount(1);
   await page.getByRole('button', { name: 'Redo' }).click();
-  await expect(lights).toHaveCount(0);
+  await expect.poll(() => sceneLights(page)).toEqual([]);
   await page.getByRole('button', { name: 'Undo' }).click();
-  await expect(lights).toHaveText(['Wheel spot']);
+  await expect.poll(() => sceneLights(page)).toEqual(['Wheel spot'].sort());
 
   // Live, there is no editing to undo.
   await page.getByRole('button', { name: 'Design mode' }).click();
@@ -1185,4 +1197,62 @@ test('a scene is started, previewed on the lights and undone from its editor', a
   await expect(live).toBeDisabled();
   await page.getByRole('button', { name: 'SHOW mode' }).click();
   await expect(page.getByRole('button', { name: 'Undo' })).toBeEnabled();
+});
+
+test('scene values with no effect, highlight, times per attribute and tests with fades', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByText('Engine: connected')).toBeVisible();
+  await page.getByRole('button', { name: 'Stop all' }).click();
+  await page.getByRole('button', { name: 'FX', exact: true }).click();
+  await page.getByRole('button', { name: 'New scene', exact: true }).click();
+  const name = page.locator('.editor input').first();
+  await name.fill('Overrides');
+  await name.press('Enter');
+  await addLights(page, 'Wheel spot');
+  const channels = page.getByRole('group', { name: 'Scene channels' });
+  const strip = channels.locator('.strip', { has: page.getByLabel('Wheel spot: Dimmer value', { exact: true }) });
+  const output = strip.locator('.now');
+  await expect(output).toHaveText('0');
+
+  // Highlight: the chosen lights at full until it is turned off; nothing stored.
+  const highlight = page.getByRole('button', { name: 'Highlight: All lights' });
+  await highlight.click();
+  await expect(output).toHaveText('255');
+  await highlight.click();
+  await expect(output).toHaveText('0');
+  await expect(page.locator('tr', { hasText: 'Intensity' })).toHaveCount(0);
+
+  // A value to all lights, then one to the fixture: the last one wins, the
+  // first has no effect and can be removed without changing the lights.
+  const level = page.getByRole('slider', { name: 'Intensity', exact: true });
+  await level.fill('40');
+  await page.getByRole('button', { name: 'Add to scene' }).click();
+  await page.getByRole('group', { name: 'Apply to' }).getByRole('button', { name: 'Wheel spot', exact: true }).click();
+  await level.fill('100');
+  await page.getByRole('button', { name: 'Add to scene' }).click();
+  const first = page.locator('tr', { hasText: 'Intensity 40%' });
+  await expect(first).toHaveClass(/\bcovered\b/);
+  await expect(first).toContainText('no effect');
+  await expect(page.locator('tr', { hasText: 'Intensity 100%' })).not.toHaveClass(/\bcovered\b/);
+  await page.getByRole('button', { name: 'Remove 1 value with no effect' }).click();
+  await expect(first).toHaveCount(0);
+  await expect(page.locator('tr', { hasText: 'Intensity 100%' })).toHaveCount(1);
+
+  // Own times for the intensity, and the delay spread over the lights.
+  await page.getByText('Times per attribute').click();
+  await page.getByLabel('Intensity: own times').check();
+  await expect(page.locator('.kind', { hasText: 'Intensity' }).getByRole('button', { name: /^Fade in/ })).toBeVisible();
+  await page.getByLabel('Delay over the lights').selectOption('from_center');
+  await expect(page.getByRole('button', { name: 'Step: 1/4 beat' })).toBeVisible();
+
+  // Starting the scene pauses the live preview, so its own fades show.
+  const live = page.getByLabel('Live preview on the lights');
+  await live.check();
+  const header = page.locator('.editor');
+  await header.getByRole('button', { name: 'Start', exact: true }).click();
+  await expect(page.getByText('Paused while the scene was started')).toBeVisible();
+  await expect(output).toHaveText('255');
+  await header.getByRole('button', { name: 'Stop', exact: true }).click();
+  await expect(output).toHaveText('0');
+  await live.uncheck();
 });

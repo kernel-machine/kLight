@@ -443,6 +443,20 @@ pub struct SceneLights {
     pub fixtures: Vec<FixtureId>,
 }
 
+/// A value of a scene that later values override, on some or all of the
+/// channels it writes (values apply in order: the last one wins on every
+/// channel).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct CoveredValue {
+    /// Index of the value in the scene.
+    pub index: u32,
+    /// Indices of the later values that override it, in order.
+    pub by: Vec<u32>,
+    /// Every channel it writes is overridden: it has no effect.
+    pub full: bool,
+}
+
 /// The fixtures a target names, each once. None for [`Target::Scene`], which
 /// only means something inside its scene.
 pub fn target_fixtures(show: &Show, target: &Target) -> Vec<FixtureId> {

@@ -2,11 +2,13 @@
   // What the next values of a scene go to: all its lights, one of its groups,
   // or some fixtures. Groups come first, each in its color; the fixtures are in
   // a box per model, headed by a bar that chooses them all, with a dot for
-  // every group they belong to.
+  // every group they belong to. It is also the list of the scene's lights:
+  // each group, and each fixture added on its own, has a × that takes it out
+  // (a fixture there through a group goes with the group).
   import { app } from '../lib/app.svelte';
   import { groupColor, groupsOf } from '../lib/show';
   import { found, lightSections } from '../lib/lightSections';
-  import type { FixtureGroup, SceneLights } from '../lib/protocol';
+  import type { FixtureGroup, SceneLights, Target } from '../lib/protocol';
 
   let {
     lights,
@@ -16,6 +18,7 @@
     onall,
     ongroup,
     onfixtures,
+    onremove,
   }: {
     lights: SceneLights;
     /** The groups of the scene. */
@@ -27,6 +30,8 @@
     onall: () => void;
     ongroup: (id: number) => void;
     onfixtures: (ids: number[]) => void;
+    /** Takes a light (a group, or a fixture added on its own) out of the scene. */
+    onremove: (light: Target) => void;
   } = $props();
 
   const show = $derived(app.s.show!);
@@ -36,6 +41,11 @@
   const sections = $derived(lightSections(show.fixtures.filter((f) => lights.fixtures.includes(f.id)), query));
   const countOf = (id: number) => lights.members.find((m) => m.target.type === 'group' && m.target.id === id)?.fixtures.length ?? 0;
   const groupName = $derived(groups.find((g) => g.id === group)?.name);
+  /** Fixtures that are lights of the scene on their own, not only through a group. */
+  const own = $derived(new Set(lights.members.flatMap((m) => (m.target.type === 'fixture' ? [m.target.id] : []))));
+  /** The groups of the scene a fixture is in it through. */
+  const through = (id: number) =>
+    lights.members.flatMap((m) => (m.target.type === 'group' && m.fixtures.includes(id) ? groups.filter((g) => g.id === (m.target as { id: number }).id).map((g) => g.name) : []));
 
   function toggle(id: number) {
     onfixtures(chosen.includes(id) ? chosen.filter((x) => x !== id) : [...chosen, id]);
@@ -63,9 +73,12 @@
       <h4>Groups</h4>
       <div class="groups">
         {#each shownGroups as g (g.id)}
-          <button class="group" class:on={group === g.id} style="--gc:{groupColor(show, g.id)}" aria-pressed={group === g.id} aria-label="Group: {g.name}" title={lights.members.find((m) => m.target.type === 'group' && m.target.id === g.id)?.fixtures.map((id) => show.fixtures.find((f) => f.id === id)?.name).join(', ')} onclick={() => ongroup(g.id)}>
-            <span class="dot"></span>{g.name} <small>{countOf(g.id)}</small>
-          </button>
+          <span class="item group-item" class:on={group === g.id} style="--gc:{groupColor(show, g.id)}">
+            <button class="group" class:on={group === g.id} aria-pressed={group === g.id} aria-label="Group: {g.name}" title={lights.members.find((m) => m.target.type === 'group' && m.target.id === g.id)?.fixtures.map((id) => show.fixtures.find((f) => f.id === id)?.name).join(', ')} onclick={() => ongroup(g.id)}>
+              <span class="dot"></span>{g.name} <small>{countOf(g.id)}</small>
+            </button>
+            <button class="x" aria-label="Remove {g.name} from the scene" title="Remove the group from the scene" onclick={() => onremove({ type: 'group', id: g.id })}>×</button>
+          </span>
         {/each}
       </div>
     {/if}
@@ -84,10 +97,18 @@
           </button>
           <div class="fixtures">
             {#each s.fixtures as f (f.id)}
-              <button class="fixture" class:on={chosen.includes(f.id)} aria-pressed={chosen.includes(f.id)} aria-label={f.name} title={[f.name, ...groupsOf(show, f.id).map((g) => `group ${g.name}`)].join(' · ')} onclick={() => toggle(f.id)}>
-                <span class="name">{f.name}</span>
-                <span class="dots" aria-hidden="true">{#each groupsOf(show, f.id) as g (g.id)}<span class="dot" style="--gc:{groupColor(show, g.id)}"></span>{/each}</span>
-              </button>
+              {@const via = through(f.id)}
+              <span class="item" class:on={chosen.includes(f.id)}>
+                <button class="fixture" class:on={chosen.includes(f.id)} aria-pressed={chosen.includes(f.id)} aria-label={f.name} title={[f.name, ...groupsOf(show, f.id).map((g) => `group ${g.name}`)].join(' · ')} onclick={() => toggle(f.id)}>
+                  <span class="name">{f.name}</span>
+                  <span class="dots" aria-hidden="true">{#each groupsOf(show, f.id) as g (g.id)}<span class="dot" style="--gc:{groupColor(show, g.id)}"></span>{/each}</span>
+                </button>
+                {#if own.has(f.id)}
+                  <button class="x" aria-label="Remove {f.name} from the scene" title="Remove from the scene" onclick={() => onremove({ type: 'fixture', id: f.id })}>×</button>
+                {:else}
+                  <span class="via" title="In the scene through {via.join(', ')}: remove the group to take it out">⛓</span>
+                {/if}
+              </span>
             {/each}
           </div>
         </div>
@@ -106,8 +127,17 @@
   small { opacity: 0.7; font-weight: 400; }
   .dot { display: inline-block; flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--gc); }
   .groups { display: flex; flex-wrap: wrap; gap: 6px; }
+  /* A light and its ×: one control to the eye, two buttons. */
+  .item { display: flex; align-items: stretch; min-width: 0; }
+  .item > :first-child { flex: 1; min-width: 0; border-top-right-radius: 0; border-bottom-right-radius: 0; }
+  .x, .via { flex: none; display: flex; align-items: center; justify-content: center; width: 26px; padding: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: none; font-size: 14px; line-height: 1; color: var(--muted); }
+  .x:hover { color: var(--danger, #e5484d); background: color-mix(in srgb, var(--danger, #e5484d) 14%, var(--panel)); }
+  .via { border: 1px solid var(--border); border-left: none; border-radius: 0 var(--radius) var(--radius) 0; font-size: 11px; opacity: 0.7; cursor: help; }
   .group { display: flex; align-items: center; gap: 6px; font-weight: 600; padding: 5px 12px; border: 1px solid var(--gc); background: color-mix(in srgb, var(--gc) 16%, var(--panel)); }
   .group.on { background: var(--gc); color: #101318; }
+  .group-item .x { border: 1px solid var(--gc); border-left: none; background: color-mix(in srgb, var(--gc) 16%, var(--panel)); }
+  .item.on .x, .item.on .via { border-color: var(--accent); }
+  .group-item.on .x { border-color: var(--gc); }
   .group.on .dot { background: #101318; }
   /* Never squeezed: a long list scrolls. */
   .section { flex: none; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }

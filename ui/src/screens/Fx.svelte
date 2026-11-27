@@ -146,7 +146,7 @@
           {#if active.has(f.id)}
             <button class="primary" onclick={() => run({ type: 'stop_function', id: f.id })}>Stop</button>
           {:else}
-            <button onclick={() => run({ type: 'start_function', id: f.id })}>Start</button>
+            <button title="Runs the scene with its times, to check its fades (the live preview pauses)" onclick={() => run({ type: 'start_function', id: f.id })}>Start</button>
           {/if}
           <button onclick={() => duplicate(f)}>Duplicate</button>
         {/if}
@@ -155,16 +155,7 @@
 
       {#if f.kind.type === 'scene'}
         {@const k = f.kind}
-        <h3>Timing</h3>
-        <div class="row">
-          <button onclick={() => timeInput(k.timing.fade_in, (t) => updateKind(f, { ...k, timing: { ...k.timing, fade_in: t } }))}>Fade in: {formatTime(k.timing.fade_in)}</button>
-          <button onclick={() => timeInput(k.timing.fade_out, (t) => updateKind(f, { ...k, timing: { ...k.timing, fade_out: t } }))}>Fade out: {formatTime(k.timing.fade_out)}</button>
-          <button onclick={() => timeInput(k.timing.delay, (t) => updateKind(f, { ...k, timing: { ...k.timing, delay: t } }))}>Delay: {formatTime(k.timing.delay)}</button>
-          <button onclick={() => timeInput(k.spread.type === 'none' ? { ms: 0 } : k.spread.step, (t) => updateKind(f, { ...k, spread: 'ms' in t && t.ms === 0 ? { type: 'none' } : { type: 'linear', step: t } }))}>
-            Spread over group: {k.spread.type === 'none' ? 'off' : formatTime(k.spread.step)}
-          </button>
-        </div>
-        <SceneEditor {f} scene={k} />
+        <SceneEditor {f} scene={k} running={active.has(f.id)} />
       {:else if f.kind.type === 'chaser'}
         <ChaserEditor {f} chaser={f.kind} bind:picking />
       {:else if f.kind.type === 'collection'}

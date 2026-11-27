@@ -6,6 +6,7 @@
 
 import init, { initSync, ShowView, MovementView, MatrixView, linear_to_hex, hex_to_linear, set_scene_channel, max_sequence_colors, color_sequence_json, beat_flash_bits, widget_light_code, chaser_step_types, beat_choices, collection_member_types } from './wasm/klight_wasm.js';
 import type {
+  CoveredValue,
   ActiveFunction,
   FunctionCategory,
   WidgetKind,
@@ -151,6 +152,19 @@ export function sceneLights(show: Show, functionId: number): SceneLights {
  */
 export function addSceneValues(show: Show, scene: Scene, incoming: SceneValue[]): Scene {
   return JSON.parse(view(show).view.add_scene_values(JSON.stringify(scene), JSON.stringify(incoming))) as Scene;
+}
+
+/**
+ * Values of a scene that later values override (the last value wins on every
+ * channel), as the engine resolves them.
+ */
+export function coveredValues(show: Show, scene: Scene): CoveredValue[] {
+  return JSON.parse(view(show).view.covered_values(JSON.stringify(scene))) as CoveredValue[];
+}
+
+/** Scene without the values that later values override entirely. */
+export function removeCoveredValues(show: Show, scene: Scene): Scene {
+  return JSON.parse(view(show).view.remove_covered_values(JSON.stringify(scene))) as Scene;
 }
 
 /** Scene with more lights (groups and fixtures). */

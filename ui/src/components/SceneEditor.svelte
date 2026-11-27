@@ -6,12 +6,15 @@
   import SceneFaders from './SceneFaders.svelte';
   import ApplyTo from './ApplyTo.svelte';
   import LightPickerDialog from './LightPickerDialog.svelte';
+  import SceneTiming from './SceneTiming.svelte';
+  import XYPad from './XYPad.svelte';
   import { editQueue } from '../lib/queue';
   import { capabilityNames, colorToHex, describeTarget, describeValue, hexToColor } from '../lib/show';
-  import { addSceneMembers, addSceneValues, colorChoices, removeSceneMember, sceneLights, sceneValueColor, setSceneChannel, valueSupport } from '../lib/core';
-  import type { AttributeValue, ChannelRef, FanMode, Function as Fn, Scene, SceneValue, Show, Target, ValueSource } from '../lib/protocol';
+  import { addSceneMembers, addSceneValues, colorChoices, coveredValues, removeCoveredValues, removeSceneMember, sceneLights, sceneValueColor, setSceneChannel, valueSupport } from '../lib/core';
+  import type { AttributeValue, ChannelRef, CoveredValue, FanMode, Function as Fn, Scene, SceneValue, Show, Target, ValueSource } from '../lib/protocol';
 
-  let { f, scene }: { f: Fn; scene: Scene } = $props();
+  /** `running`: the scene plays, with its own times (started from the FX screen). */
+  let { f, scene, running = false }: { f: Fn; scene: Scene; running?: boolean } = $props();
   const show = $derived(app.s.show!);
   const programmer = $derived(app.s.runtime?.state.programmer ?? []);
 
@@ -26,6 +29,7 @@
   let pan = $state(0);
   let tilt = $state(0);
   let spread = $state(60);
+  let tiltSpread = $state(0);
   let fanMode = $state<FanMode>('linear');
   let name = $state('');
   let zoom = $state(20);
@@ -72,6 +76,7 @@
     toAll();
     adding = false;
     dragged = null;
+    highlight = false;
   });
 
   function toAll() {
@@ -135,7 +140,7 @@
       case 'position':
         return positionDmx ? [raw('Pan', panDmx), raw('Tilt', tiltDmx)] : [v({ type: 'position', pan, tilt })];
       case 'fan':
-        return [v({ type: 'position_fan', pan, tilt, pan_spread: spread, tilt_spread: 0, mode: fanMode })];
+        return [v({ type: 'position_fan', pan, tilt, pan_spread: spread, tilt_spread: tiltSpread, mode: fanMode })];
       case 'gobo':
         return name ? [v({ type: 'gobo', name })] : [];
       case 'prism':
@@ -226,6 +231,29 @@
   /** What the panel is about: the controls count once moved for it. */
   const aim = $derived(JSON.stringify([sceneId, kind, targets]));
   let movedFor = $state('');
+  /**
+   * Starting the scene pauses the preview, which would hide its fades; moving
+   * a control or ticking the box again goes on with it.
+   */
+  let paused = $state(false);
+  $effect(() => {
+    if (running) paused = true;
+  });
+  /** A control was moved for what the panel is about. */
+  function touched() {
+    movedFor = aim;
+    paused = false;
+  }
+  /** The chosen lights at full, in white where they mix colors: to find them on stage. */
+  let highlight = $state(false);
+  const lit = $derived<SceneValue[]>(
+    highlight && canPreview
+      ? targets.flatMap((target): SceneValue[] => [
+          { target, value: { type: 'explicit', value: { type: 'intensity', level: 1 } } },
+          ...(support.color ? [{ target, value: { type: 'explicit', value: { type: 'color', color: { r: 1, g: 1, b: 1 } } } } as SceneValue] : []),
+        ])
+      : [],
+  );
   // Turning to something else starts afresh, also when coming back to it.
   $effect.pre(() => {
     void aim;
@@ -233,7 +261,7 @@
   });
   let dragged = $state<{ fixture: number; channel: ChannelRef; value: number } | null>(null);
   const trial = $derived.by(() => {
-    if (!wantsPreview || !canPreview) return null;
+    if (!wantsPreview || !canPreview || paused) return null;
     let s: Scene = scene;
     const values = movedFor === aim ? currentValues() : [];
     if (values.length && targets.length) {
@@ -250,11 +278,21 @@
     });
   });
   $effect(() => {
-    if (trial) preview.show(trial.values, trial.members);
+    // The highlight comes last: it wins over the scene on the chosen lights.
+    if (trial || lit.length) preview.show([...(trial?.values ?? []), ...lit], trial?.members ?? scene.members);
     else preview.stop();
   });
   // Leaving the editor gives the lights back.
   $effect(() => () => preview.stop());
+
+  // ---- values that later ones override: the last value wins on every channel.
+  const covers = $derived(new Map<number, CoveredValue>(coveredValues(show, scene).map((c) => [c.index, c])));
+  const fullyCovered = $derived([...covers.values()].filter((c) => c.full).length);
+  /** Who overrides a value, in words (each target once). */
+  function coveredBy(c: CoveredValue): string {
+    const names = [...new Set(c.by.flatMap((j) => { const v = scene.values[j]; return v ? [describeTarget(show, v.target)] : []; }))];
+    return c.full ? `No effect: overridden by ${names.join(', ')}` : `Overridden on some lights by ${names.join(', ')}`;
+  }
 
   /** Who the next value goes to, in words. */
   const targetName = $derived(
@@ -294,7 +332,7 @@
       case 'intensity': kind = 'intensity'; level = Math.round(v.level * 100); break;
       case 'color': kind = 'color'; color = colorToHex(v.color); break;
       case 'position': kind = 'position'; preferDmx.position = false; pan = v.pan; tilt = v.tilt; break;
-      case 'position_fan': kind = 'fan'; pan = v.pan; tilt = v.tilt; spread = v.pan_spread; fanMode = v.mode; break;
+      case 'position_fan': kind = 'fan'; pan = v.pan; tilt = v.tilt; spread = v.pan_spread; tiltSpread = v.tilt_spread; fanMode = v.mode; break;
       case 'gobo': kind = 'gobo'; name = v.name; break;
       case 'prism': kind = 'prism'; name = v.name; break;
       case 'zoom': kind = 'zoom'; zoom = v.degrees; break;
@@ -335,28 +373,26 @@
   }
 </script>
 
-<h3>Lights ({lights.fixtures.length})</h3>
-<ul class="lights" aria-label="Scene lights">
-  {#each lights.members as m (JSON.stringify(m.target))}
-    {@const name = describeTarget(show, m.target)}
-    <li>
-      <span class="light">{name}</span>
-      {#if m.target.type === 'group'}
-        <span class="muted of" title={m.fixtures.map(fixtureName).join(', ')}>group: {m.fixtures.map(fixtureName).join(', ') || 'no fixtures'}</span>
-      {/if}
-      <button aria-label="Remove {name} from the scene" title="Remove from the scene" onclick={() => update((s, latest) => removeSceneMember(latest, s, m.target))}>×</button>
-    </li>
-  {:else}
-    <li class="muted">No lights yet: add the groups and fixtures this scene drives.</li>
-  {/each}
-</ul>
-<div class="row">
-  <button class="primary" onclick={() => (adding = true)}>Add lights…</button>
-  <label class="row" title="When off, lights added later do not take the values given to all lights">
-    <input type="checkbox" checked={scene.new_members_follow} onchange={(e) => { const on = e.currentTarget.checked; update((s) => ({ ...s, new_members_follow: on })); }} />
-    Lights added later take the values of all lights
-  </label>
-</div>
+<SceneTiming {scene} onchange={update} />
+
+{#snippet addLightsRow()}
+  <div class="row add-lights">
+    <button class="primary" onclick={() => (adding = true)}>Add lights…</button>
+    {#if lights.members.length}
+      <label class="row small" title="When off, lights added later do not take the values given to all lights">
+        <input type="checkbox" checked={scene.new_members_follow} onchange={(e) => { const on = e.currentTarget.checked; update((s) => ({ ...s, new_members_follow: on })); }} />
+        Lights added later take the values of all lights
+      </label>
+    {/if}
+  </div>
+{/snippet}
+
+<!-- The lights of the scene are listed (and removed) in "Choose lights". -->
+{#if !lights.members.length}
+  <h3>Lights</h3>
+  <p class="muted">No lights yet: add the groups and fixtures this scene drives.</p>
+  {@render addLightsRow()}
+{/if}
 
 {#snippet fromProgrammer()}
   <button disabled={!programmer.length} onclick={() => mergeProgrammer(false)}>Add programmer values</button>
@@ -377,18 +413,30 @@
 <div class="compose">
   <div class="steps">
     <section class="card pick" aria-label="Choose lights">
-      <h3><span class="step">1</span> Choose lights</h3>
+      <h3><span class="step">1</span> Choose lights <small class="muted">({lights.fixtures.length} in the scene)</small></h3>
+      {@render addLightsRow()}
       {#key sceneId}
-        <ApplyTo {lights} groups={memberGroups} {group} {chosen} onall={toAll} ongroup={chooseGroup} onfixtures={chooseFixtures} />
+        <ApplyTo {lights} groups={memberGroups} {group} {chosen} onall={toAll} ongroup={chooseGroup} onfixtures={chooseFixtures} onremove={(light) => update((s, latest) => removeSceneMember(latest, s, light))} />
       {/key}
+      <button
+        class="highlight"
+        class:on={highlight && canPreview}
+        aria-pressed={highlight}
+        disabled={!canPreview}
+        title={canPreview ? 'Lights the chosen lights at full, in white, to find them on stage' : 'Only in Design mode, with full access'}
+        onclick={() => (highlight = !highlight)}
+      >Highlight: {targetName}</button>
     </section>
 
     <section class="card preset" aria-label="Apply a preset" bind:this={panel}>
       <h3><span class="step">2</span> Apply a preset</h3>
       <label class="live" title="The lights show this scene and follow the controls; nothing is saved until you add it">
-        <input type="checkbox" bind:checked={wantsPreview} disabled={!canPreview} />
+        <input type="checkbox" bind:checked={wantsPreview} disabled={!canPreview} onchange={() => (paused = false)} />
         Live preview on the lights
       </label>
+      {#if wantsPreview && canPreview && paused}
+        <span class="muted small">Paused while the scene was started, so its fades show. Move a control to go on.</span>
+      {/if}
       <p class="target">to <b>{targetName}</b> {#if !chosen.length}<span class="muted">· {targetFixtures.length} fixture{targetFixtures.length === 1 ? '' : 's'}</span>{/if}</p>
       <div class="attributes" role="radiogroup" aria-label="Scene attribute">
         {#each ATTRIBUTES.filter(([k]) => allowed.includes(k)) as [k, label] (k)}
@@ -396,7 +444,7 @@
         {/each}
       </div>
       <!-- Any control moved counts for the preview. -->
-      <div class="control" role="presentation" oninput={() => (movedFor = aim)} onchange={() => (movedFor = aim)}>
+      <div class="control" role="presentation" oninput={touched} onchange={touched}>
         {#if !allowed.length}
           <span class="muted">Nothing to set: these lights have no fixtures, and there are no palettes yet (create them in the Simple Desk).</span>
         {:else if kind === 'intensity'}
@@ -407,7 +455,7 @@
             <div class="wheel" role="radiogroup" aria-label="Color wheel colors">
               {#each choices.wheel as w (colorToHex(w.color))}
                 {@const hex = colorToHex(w.color)}
-                <button class="chip" class:on={hex === color} role="radio" aria-checked={hex === color} aria-label={w.name} title={w.name} style="--c:{hex}" onclick={() => { color = hex; movedFor = aim; }}></button>
+                <button class="chip" class:on={hex === color} role="radio" aria-checked={hex === color} aria-label={w.name} title={w.name} style="--c:{hex}" onclick={() => { color = hex; touched(); }}></button>
               {/each}
             </div>
           {/if}
@@ -416,16 +464,20 @@
         {:else if kind === 'position'}
           {#if mixed.position}{@render unit('position', 'Degrees', 'range in degrees')}{/if}
           {#if positionDmx}
+            <XYPad pan={panDmx} tilt={tiltDmx} panRange={[0, 255]} tiltRange={[0, 255]} unit="" onchange={(p, t) => { panDmx = Math.round(p); tiltDmx = Math.round(t); touched(); }} />
             <label>Pan <input type="range" min="0" max="255" bind:value={panDmx} aria-label="Pan DMX" /><input class="byte" type="number" min="0" max="255" bind:value={panDmx} aria-label="Pan DMX value" /></label>
             <label>Tilt <input type="range" min="0" max="255" bind:value={tiltDmx} aria-label="Tilt DMX" /><input class="byte" type="number" min="0" max="255" bind:value={tiltDmx} aria-label="Tilt DMX value" /></label>
           {:else}
+            <XYPad {pan} {tilt} panRange={[-270, 270]} tiltRange={[-135, 135]} onchange={(p, t) => { pan = p; tilt = t; touched(); }} />
             <label>Pan <input type="number" min="-270" max="270" step="0.5" bind:value={pan} />°</label>
             <label>Tilt <input type="number" min="-135" max="135" step="0.5" bind:value={tilt} />°</label>
           {/if}
         {:else if kind === 'fan'}
+          <XYPad {pan} {tilt} panRange={[-270, 270]} tiltRange={[-135, 135]} onchange={(p, t) => { pan = p; tilt = t; touched(); }} />
           <label>Pan <input type="number" min="-270" max="270" step="0.5" bind:value={pan} />°</label>
           <label>Tilt <input type="number" min="-135" max="135" step="0.5" bind:value={tilt} />°</label>
-          <label>Spread <input type="number" min="-540" max="540" step="1" bind:value={spread} />°</label>
+          <label>Pan spread <input type="number" min="-540" max="540" step="1" bind:value={spread} />°</label>
+          <label>Tilt spread <input type="number" min="-270" max="270" step="1" bind:value={tiltSpread} />°</label>
           <select bind:value={fanMode}><option value="linear">linear</option><option value="from_center">from center</option></select>
         {:else if kind === 'gobo' || kind === 'prism'}
           <select bind:value={name}>
@@ -460,13 +512,20 @@
 {/if}
 
 {#if lights.members.length || scene.values.length}
-<h3>Values</h3>
+<div class="row values-head">
+  <h3>Values</h3>
+  {#if fullyCovered}
+    <button title="Removes the values that later ones override on every channel: the lights do not change" onclick={() => update((s, latest) => removeCoveredValues(latest, s))}>Remove {fullyCovered} value{fullyCovered === 1 ? '' : 's'} with no effect</button>
+  {/if}
+</div>
+<p class="muted small">Values apply in order: on every channel the last one wins, whoever it goes to.</p>
 <table>
   <tbody>
     {#each scene.values as sv, i (i)}
       {#if sv.value.type !== 'channel'}
-        <tr>
-          <td>{describeTarget(show, sv.target)}</td>
+        {@const cover = covers.get(i)}
+        <tr class:covered={cover?.full} title={cover ? coveredBy(cover) : undefined}>
+          <td>{describeTarget(show, sv.target)}{#if cover}<span class="cover" class:full={cover.full}>{cover.full ? 'no effect' : 'partly overridden'}</span>{/if}</td>
           <!-- No whitespace around the text: the cell reads exactly as the value. -->
           <td class="muted">{#if swatch(i) !== null}<span class="swatch" style="background:{swatch(i)}" title={swatch(i)}></span>{/if}{describe(sv)}</td>
           <td class="actions">
@@ -489,7 +548,7 @@
   </tbody>
 </table>
 
-<SceneFaders functionId={f.id} onset={setChannel} ontry={(change) => (dragged = change)} />
+<SceneFaders functionId={f.id} onset={setChannel} ontry={(change) => { dragged = change; if (change) paused = false; }} />
 {/if}
 
 {#if adding}
@@ -538,16 +597,18 @@
   /* A second way to give values: kept apart and quiet. */
   .programmer { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 10px; border-top: 1px solid var(--border); }
   .programmer button { flex: 1; font-size: 12px; }
-  .lights { margin: 0 0 8px; padding: 0; list-style: none; border: 1px solid var(--border); border-radius: var(--radius); max-height: 30vh; overflow: auto; }
-  .lights li { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-bottom: 1px solid var(--border); }
-  .lights li:last-child { border-bottom: none; }
-  .light { font-weight: 600; }
-  .of { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-  .lights button { margin-left: auto; padding: 2px 10px; }
+  .add-lights { margin-bottom: 8px; flex-wrap: wrap; }
   .wheel { display: flex; flex-wrap: wrap; gap: 6px; }
   .wheel .chip { width: 26px; height: 26px; padding: 0; border-radius: 6px; background: var(--c); border: 2px solid var(--border); cursor: pointer; }
   .wheel .chip:hover { border-color: var(--muted); }
   .wheel .chip.on { border-color: var(--text); box-shadow: 0 0 0 2px var(--accent); }
   .swatch { display: inline-block; width: 18px; height: 18px; border-radius: 4px; border: 1px solid var(--border); vertical-align: middle; margin-right: 6px; }
   .actions { text-align: right; white-space: nowrap; }
+  tr.covered td { opacity: 0.55; }
+  tr.covered td:nth-child(2) { text-decoration: line-through; }
+  .cover { margin-left: 6px; padding: 0 6px; border-radius: 8px; font-size: 11px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+  .cover.full { border-style: dashed; }
+  .values-head { align-items: center; justify-content: space-between; }
+  .highlight { margin-top: 8px; width: 100%; }
+  .highlight.on { background: #fff; color: #000; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
 </style>

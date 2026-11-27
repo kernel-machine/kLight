@@ -68,6 +68,24 @@ impl ShowView {
         )))
     }
 
+    pub fn covered_values_of(&self, scene: &str) -> Result<Vec<inspect::CoveredValue>, String> {
+        let scene: Scene = parse(scene, "scene")?;
+        Ok(scene_edit::covered_values(
+            &self.show,
+            self.compiled(),
+            &scene,
+        ))
+    }
+
+    pub fn remove_covered_values_of(&self, scene: &str) -> Result<String, String> {
+        let scene: Scene = parse(scene, "scene")?;
+        Ok(to_json(&scene_edit::remove_covered_values(
+            &self.show,
+            self.compiled(),
+            &scene,
+        )))
+    }
+
     pub fn add_scene_members_of(&self, scene: &str, lights: &str) -> Result<String, String> {
         let scene: Scene = parse(scene, "scene")?;
         let lights: Vec<Target> = parse(lights, "lights")?;
@@ -186,6 +204,20 @@ impl ShowView {
     /// JSON `Scene`: `scene` after adding `incoming` (JSON `SceneValue[]`).
     pub fn add_scene_values(&self, scene: &str, incoming: &str) -> Result<String, JsError> {
         self.add_scene_values_of(scene, incoming)
+            .map_err(|e| JsError::new(&e))
+    }
+
+    /// JSON `CoveredValue[]`: the values of `scene` (JSON `Scene`) that later
+    /// values override, as the engine resolves them.
+    pub fn covered_values(&self, scene: &str) -> Result<String, JsError> {
+        self.covered_values_of(scene)
+            .map(|c| to_json(&c))
+            .map_err(|e| JsError::new(&e))
+    }
+
+    /// JSON `Scene`: `scene` without the values later ones override entirely.
+    pub fn remove_covered_values(&self, scene: &str) -> Result<String, JsError> {
+        self.remove_covered_values_of(scene)
             .map_err(|e| JsError::new(&e))
     }
 
@@ -561,6 +593,18 @@ mod tests {
             "[]"
         );
         assert!(set_scene_channel_json("{", 3, channel, None).is_err());
+    }
+
+    #[test]
+    fn covered_values_json_shape() {
+        let show = ShowView::from_json(&serde_json::to_string(&Show::new("t")).unwrap()).unwrap();
+        // With no fixtures nothing is written, so nothing is covered.
+        let scene = r#"{"values":[{"target":{"type":"scene"},"value":{"type":"explicit","value":{"type":"intensity","level":1}}}]}"#;
+        assert_eq!(show.covered_values_of(scene).unwrap(), vec![]);
+        let kept: Scene =
+            serde_json::from_str(&show.remove_covered_values_of(scene).unwrap()).unwrap();
+        assert_eq!(kept.values.len(), 1);
+        assert!(show.covered_values_of("{").is_err());
     }
 
     #[test]

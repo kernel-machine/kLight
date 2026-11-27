@@ -521,7 +521,23 @@ Always visible:
 
 The scene editor starts and stops its scene, and can preview it on the lights
 (off until asked for), following the controls and channel faders as they move.
+Starting the scene pauses the preview, so that the scene's own times show; moving
+a control again goes on with it. A **highlight** puts the chosen lights at full
+(white where they mix colors) to find them on stage: it is sent as a preview,
+after the scene values so that it wins, and stores nothing.
 Undo and redo of show changes are always at hand in Design mode.
+
+The scene editor sets the scene times: fade in, fade out, delay, the delay spread
+over the order of the lights (one after the other or from the center out) and
+own times per attribute kind (intensity, color, position, beam).
+Pan and tilt are also picked on an XY pad (with a fine mode ten times slower);
+a fan has a pan and a tilt spread.
+
+Values apply in order and the last one wins on every channel byte, whatever its
+target (fixture, group or all lights). The editor marks the values later ones
+override (core `covered_values`): partly, or entirely, when the value has no
+effect left; those can be removed at once (core `remove_covered_values`), which
+leaves the output unchanged.
 
 In the scene editor the lights are added from a dialog that lists them as the
 patch screen does. A new value goes to all lights, or to one chosen group or
