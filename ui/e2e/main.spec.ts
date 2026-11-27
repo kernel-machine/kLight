@@ -26,6 +26,29 @@ async function sceneLights(page: Page): Promise<string[]> {
   return names.sort();
 }
 
+/** Opens the scene's ⋯ menu and picks an action. */
+async function sceneMenu(page: Page, item: string | RegExp) {
+  await page.getByRole('button', { name: 'More actions' }).click();
+  await page.getByRole('menuitem', { name: item }).click();
+}
+
+/** Puts an intensity in the scene with a quick level of the panel. */
+async function quickLevel(page: Page, pct: number) {
+  await page.getByRole('group', { name: 'Quick levels' }).getByRole('button', { name: `${pct}%`, exact: true }).click();
+}
+
+/** Types a value in a field of the panel and leaves it: it goes into the scene. */
+async function enter(page: Page, label: string, value: string) {
+  const field = page.getByRole('region', { name: 'Set a value' }).getByLabel(label, { exact: true });
+  await field.fill(value);
+  await field.press('Tab');
+}
+
+/** Shows the scene as every channel on faders. */
+async function showChannels(page: Page) {
+  await page.getByRole('tab', { name: 'DMX channels' }).click();
+}
+
 /** Chooses what the next values of the scene go to: one group or one fixture. */
 async function applyTo(page: Page, chip: string) {
   const to = page.getByRole('group', { name: 'Apply to' });
@@ -150,7 +173,7 @@ test('scene editor, movement preview, knob and DMX channel desk', async ({ page 
   await addLights(page, 'group Front');
   await applyTo(page, 'Group: Front');
   await attributeOf(page, 'Intensity').click();
-  await page.getByRole('button', { name: 'Add to scene' }).click();
+  await quickLevel(page, 100);
   await expect(page.locator('td', { hasText: 'Intensity 100%' })).toBeVisible();
 
   // Only what the fixtures can do is offered: dimmers have no zoom, strobe,
@@ -165,17 +188,23 @@ test('scene editor, movement preview, knob and DMX channel desk', async ({ page 
 
   // Regression: quick successive additions must all be kept (each used to
   // be computed on a stale copy of the scene and overwrite the previous one).
+  // A control left goes straight into the scene.
   await attributeOf(page, 'Zoom').click();
-  await page.getByRole('button', { name: 'Add to scene' }).click();
+  await enter(page, 'Zoom degrees', '25');
   await attributeOf(page, 'Strobe').click();
-  await page.getByRole('button', { name: 'Add to scene' }).click();
+  await enter(page, 'Strobe Hz', '6');
   await attributeOf(page, 'Position').click();
-  await page.getByRole('button', { name: 'Add to scene' }).click();
-  for (const text of ['Intensity 100%', 'Zoom 20°', 'Strobe 5 Hz', 'Pan 0.0° Tilt 0.0°']) {
+  await enter(page, 'Pan degrees', '10');
+  for (const text of ['Intensity 100%', 'Zoom 25°', 'Strobe 6 Hz', 'Pan 10.0° Tilt 0.0°']) {
     await expect(page.locator('td', { hasText: text })).toBeVisible();
   }
 
-  // Below, one row of faders with every channel of the fixtures it drives.
+  // Choosing them again shows the value they have.
+  await attributeOf(page, 'Zoom').click();
+  await expect(page.getByRole('region', { name: 'Set a value' }).getByLabel('Zoom degrees')).toHaveValue('25');
+
+  // The other view: one row of faders with every channel of the fixtures it drives.
+  await showChannels(page);
   const channels2 = page.getByRole('group', { name: 'Scene channels' });
   await expect(page.getByText('Fixtures in this scene (4)')).toBeVisible();
   const dimmer = channels2.getByLabel('Dimmer 1: Intensity value', { exact: true });
@@ -189,27 +218,35 @@ test('scene editor, movement preview, knob and DMX channel desk', async ({ page 
   const byHandFader = channels2.getByLabel('Dimmer 2: Intensity value', { exact: true });
   const strip = channels2.locator('.strip', { has: page.getByLabel('Dimmer 2: Intensity value', { exact: true }) });
   const byHand = page.getByText('1 channel set by hand');
+  // The values view sums the channels set by hand up.
+  const byHandShown = async (shown: boolean) => {
+    await page.getByRole('tab', { name: 'Values' }).click();
+    await expect(byHand).toHaveCount(shown ? 1 : 0);
+    await showChannels(page);
+  };
   await byHandFader.fill('100');
   await byHandFader.press('Enter');
-  await expect(byHand).toBeVisible();
   await expect(strip).toHaveClass(/\bset\b/);
+  await byHandShown(true);
   await expect(strip.locator('.now')).toHaveText('100');
   await channels2.getByRole('slider', { name: 'Dimmer 2: Intensity', exact: true }).fill('90');
   await expect(strip.locator('.now')).toHaveText('90');
   await expect(byHandFader).toHaveValue('90');
   // Releasing gives the channel back to the values above.
   await channels2.getByRole('button', { name: 'Release Dimmer 2: Intensity', exact: true }).click();
-  await expect(byHand).toHaveCount(0);
+  await expect(strip).not.toHaveClass(/\bset\b/);
   await expect(byHandFader).toHaveValue('255');
+  await byHandShown(false);
   // Applying a value again releases the channels it writes.
   await byHandFader.fill('100');
   await byHandFader.press('Enter');
-  await expect(byHand).toBeVisible();
+  await expect(strip).toHaveClass(/\bset\b/);
   await applyTo(page, 'Group: Front');
   await attributeOf(page, 'Intensity').click();
-  await page.getByRole('button', { name: 'Add to scene' }).click();
-  await expect(byHand).toHaveCount(0);
+  await quickLevel(page, 100);
+  await expect(strip).not.toHaveClass(/\bset\b/);
   await expect(byHandFader).toHaveValue('255');
+  await byHandShown(false);
   await applyTo(page, 'Group: Beams');
 
   await expect.poll(async () => {
@@ -219,8 +256,9 @@ test('scene editor, movement preview, knob and DMX channel desk', async ({ page 
 
   // A fan on a group is an intention resolved by the core.
   await attributeOf(page, 'Fan (group order)').click();
-  await page.getByRole('button', { name: 'Add to scene' }).click();
-  await expect(page.locator('td', { hasText: /^Fan 60° linear/ })).toBeVisible();
+  await enter(page, 'Pan spread', '50');
+  await page.getByRole('tab', { name: 'Values' }).click();
+  await expect(page.locator('td', { hasText: /^Fan 50° linear/ })).toBeVisible();
 
   // Movement effect: the drawing follows the values.
   await page.getByRole('button', { name: 'New movement', exact: true }).click();
@@ -301,7 +339,7 @@ test('functions are listed by type with nestable folders', async ({ page }) => {
   await page.getByRole('button', { name: 'New function in Song A' }).click();
   await expect(page.getByLabel('Folder Song A', { exact: true })).toContainText('1');
   // Functions are moved by dragging them in the list only.
-  await expect(page.getByRole('button', { name: 'Delete', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'More actions' })).toBeVisible();
   await expect(page.getByLabel('Folder', { exact: true })).toHaveCount(0);
 
   // Regression: two creations in a row must not reuse the same id (the
@@ -445,10 +483,11 @@ test('a color wheel fixture offers its wheel colors instead of a free picker', a
 
   await wheel.getByRole('radio', { name: 'Blue', exact: true }).click();
   await expect(wheel.getByRole('radio', { name: 'Blue', exact: true })).toHaveAttribute('aria-checked', 'true');
-  await page.getByRole('button', { name: 'Add to scene' }).click();
+  // A wheel color picked goes straight into the scene.
   await expect(page.locator('td', { hasText: 'Color #0000ff' })).toBeVisible();
 
   // The engine puts the wheel on that slot: Blue is 30-39, so 34.
+  await showChannels(page);
   const fader = page.getByLabel('Wheel spot: Color Wheel value', { exact: true });
   await expect(fader).toHaveValue('34');
 
@@ -939,10 +978,10 @@ test('a scene has its lights, and values for all of them or for some', async ({ 
   // Without lights there is nothing to give values to: only the lights are
   // asked for.
   await expect(page.getByText('No lights yet')).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Apply a preset' })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Add to scene' })).toHaveCount(0);
-  await expect(page.getByRole('heading', { name: 'Values' })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Set a value' })).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: 'Values' })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: /^Fixtures in this scene/ })).toHaveCount(0);
+  const showValues = () => page.getByRole('tab', { name: 'Values' }).click();
 
   // The dialog lists groups with their fixtures: a ticked group takes them.
   await page.getByRole('button', { name: 'Add lights…' }).click();
@@ -958,8 +997,9 @@ test('a scene has its lights, and values for all of them or for some', async ({ 
   await expect(page.getByRole('group', { name: 'Apply to' }).getByRole('button', { name: 'Dimmer 1', exact: true })).toBeVisible();
 
   // A value goes to all lights unless some are chosen.
-  await page.getByRole('button', { name: 'Add to scene' }).click();
+  await quickLevel(page, 100);
   await expect(page.locator('tr', { hasText: 'All lights' })).toContainText('Intensity 100%');
+  await showChannels(page);
   await expect(fader('Dimmer 1: Intensity')).toHaveValue('255');
   await expect(fader('Spot 540 1: Dimmer')).toHaveValue('255');
 
@@ -977,6 +1017,7 @@ test('a scene has its lights, and values for all of them or for some', async ({ 
   await expect.poll(() => sceneLights(page)).toEqual(['Front', 'Spot 540 1', 'Spot 540 2', 'Wheel spot'].sort());
   await expect(strip('Wheel spot: Dimmer')).toHaveClass(/\bunset\b/);
   await expect(fader('Spot 540 2: Dimmer')).toHaveValue('255');
+  await showValues();
   await expect(page.locator('tr', { hasText: 'All lights' })).toHaveCount(0);
 
   // Several fixtures at once.
@@ -985,8 +1026,8 @@ test('a scene has its lights, and values for all of them or for some', async ({ 
   await to.getByRole('button', { name: 'Wheel spot', exact: true }).click();
   await expect(to.getByRole('button', { name: 'All lights' })).toHaveAttribute('aria-pressed', 'false');
   await attributeOf(page, 'Zoom').click();
-  await page.getByRole('button', { name: 'Add to scene' }).click();
-  const zoom = page.locator('tr', { hasText: 'Zoom 20°' });
+  await enter(page, 'Zoom degrees', '25');
+  const zoom = page.locator('tr', { hasText: 'Zoom 25°' });
   await expect(zoom).toHaveText([/Spot 540 1/, /Wheel spot/]);
   // Regression: every edit went back to all lights.
   await expect(to.getByRole('button', { name: 'Wheel spot', exact: true })).toHaveAttribute('aria-pressed', 'true');
@@ -1020,6 +1061,8 @@ test('a scene has its lights, and values for all of them or for some', async ({ 
   await expect.poll(() => sceneLights(page)).toEqual(['Front', 'Spot 540 2', 'Wheel spot'].sort());
   await expect(zoom).toHaveText([/Wheel spot/]);
   await expect(page.locator('tr', { hasText: 'Spot 540 1' })).toHaveCount(0);
+  await showChannels(page);
+  await expect(fader('Dimmer 1: Intensity')).toBeVisible();
   await expect(fader('Spot 540 1: Dimmer')).toHaveCount(0);
   await expect(to.getByRole('button', { name: 'Spot 540 1', exact: true })).toHaveCount(0);
 
@@ -1049,19 +1092,19 @@ test('lights without degrees or frequencies take plain DMX values', async ({ pag
 
   await attributeOf(page, 'Position').click();
   await expect(page.getByRole('radiogroup', { name: 'Unit' })).toHaveCount(0);
-  await page.getByLabel('Pan DMX value').fill('200');
-  await page.getByLabel('Tilt DMX value').fill('50');
-  await page.getByRole('button', { name: 'Add to scene' }).click();
+  await enter(page, 'Pan DMX value', '200');
+  await enter(page, 'Tilt DMX value', '50');
   await expect(page.locator('td', { hasText: 'Pan DMX 200' })).toBeVisible();
   await expect(page.locator('td', { hasText: 'Tilt DMX 50' })).toBeVisible();
+  await showChannels(page);
   await expect(fader('Pan')).toHaveValue('200');
   await expect(fader('Tilt')).toHaveValue('50');
 
   await attributeOf(page, 'Strobe').click();
-  await page.getByLabel('Strobe DMX value').fill('100');
-  await page.getByRole('button', { name: 'Add to scene' }).click();
-  await expect(page.locator('td', { hasText: 'Strobe DMX 100' })).toBeVisible();
+  await enter(page, 'Strobe DMX value', '100');
   await expect(fader('Strobe')).toHaveValue('100');
+  await page.getByRole('tab', { name: 'Values' }).click();
+  await expect(page.locator('td', { hasText: 'Strobe DMX 100' })).toBeVisible();
 
   // Edit brings back both values of a position.
   await page.getByLabel('Strobe DMX value').fill('0');
@@ -1093,11 +1136,11 @@ test('a scene can be duplicated, and the copy changes on its own', async ({ page
   await name.press('Enter');
   await expect(page.getByRole('treeitem', { name: /Original/ })).toBeVisible();
   await addLights(page, 'Wheel spot');
-  await page.getByRole('button', { name: 'Add to scene' }).click();
+  await quickLevel(page, 100);
   const values = page.locator('tr', { hasText: 'Intensity 100%' });
   await expect(values).toHaveCount(1);
 
-  await page.getByRole('button', { name: 'Duplicate' }).click();
+  await sceneMenu(page, 'Duplicate');
   await expect(name).toHaveValue('Original copy');
   await expect.poll(() => sceneLights(page)).toEqual(['Wheel spot'].sort());
   await expect(values).toHaveCount(1);
@@ -1108,7 +1151,7 @@ test('a scene can be duplicated, and the copy changes on its own', async ({ page
   await page.getByRole('treeitem', { name: /Original(?! copy)/ }).click();
   await expect(name).toHaveValue('Original');
   await expect(values).toHaveCount(1);
-  await page.getByRole('button', { name: 'Duplicate' }).click();
+  await sceneMenu(page, 'Duplicate');
   await expect(name).toHaveValue('Original copy 2');
 
   // Only scenes offer it.
@@ -1133,29 +1176,39 @@ test('a scene is started, previewed on the lights and undone from its editor', a
   await name.press('Enter');
   await expect(page.getByRole('treeitem', { name: /Tryout/ })).toBeVisible();
   await addLights(page, 'Wheel spot');
+  await showChannels(page);
   const channels = page.getByRole('group', { name: 'Scene channels' });
   const strip = channels.locator('.strip', { has: page.getByLabel('Wheel spot: Dimmer value', { exact: true }) });
   const output = strip.locator('.now');
   const level = page.getByRole('slider', { name: 'Intensity', exact: true });
   await expect(output).toHaveText('0');
+  /** The scene holds that value (the values view says so). */
+  const stored = async (text: string) => {
+    await page.getByRole('tab', { name: 'Values' }).click();
+    await expect(page.locator('tr', { hasText: text })).toHaveCount(1);
+    await showChannels(page);
+  };
 
-  // Off until asked for: moving a control changes nothing.
+  // A control let go goes into the scene, but the lights only show it once
+  // asked for (or with the scene started).
   const live = page.getByLabel('Live preview on the lights');
   await expect(live).not.toBeChecked();
   await level.fill('60');
+  await stored('Intensity 60%');
   await expect(output).toHaveText('0');
   await live.check();
-  // Choosing what to set is not setting it; moving the control is.
+  await expect(output).toHaveText('153');
+  // Choosing what to set changes nothing; moving the control does.
   await attributeOf(page, 'Color').click();
   await attributeOf(page, 'Intensity').click();
-  await expect(output).toHaveText('0');
+  await expect(level).toHaveValue('60');
+  await expect(output).toHaveText('153');
   await level.fill('40');
   await expect(output).toHaveText('102');
   // It stays for as long as the editor does (the engine drops it unrenewed).
   await page.waitForTimeout(3500);
   await expect(output).toHaveText('102');
-  // Nothing was stored.
-  await expect(page.locator('tr', { hasText: 'Intensity' })).toHaveCount(0);
+  await stored('Intensity 40%');
   await live.uncheck();
   await expect(output).toHaveText('0');
 
@@ -1173,7 +1226,7 @@ test('a scene is started, previewed on the lights and undone from its editor', a
   await live.uncheck();
 
   // Started and stopped from the editor.
-  await page.getByRole('button', { name: 'Add to scene' }).click();
+  await stored('Intensity 100%');
   const header = page.locator('.editor');
   await header.getByRole('button', { name: 'Start', exact: true }).click();
   await expect(output).toHaveText('255');
@@ -1185,7 +1238,7 @@ test('a scene is started, previewed on the lights and undone from its editor', a
   await expect.poll(() => sceneLights(page)).toEqual([]);
   await page.getByRole('button', { name: 'Undo' }).click();
   await expect.poll(() => sceneLights(page)).toEqual(['Wheel spot'].sort());
-  await expect(page.locator('tr', { hasText: 'Intensity 100%' })).toHaveCount(1);
+  await stored('Intensity 100%');
   await page.getByRole('button', { name: 'Redo' }).click();
   await expect.poll(() => sceneLights(page)).toEqual([]);
   await page.getByRole('button', { name: 'Undo' }).click();
@@ -1209,41 +1262,54 @@ test('scene values with no effect, highlight, times per attribute and tests with
   await name.fill('Overrides');
   await name.press('Enter');
   await addLights(page, 'Wheel spot');
+  await showChannels(page);
   const channels = page.getByRole('group', { name: 'Scene channels' });
   const strip = channels.locator('.strip', { has: page.getByLabel('Wheel spot: Dimmer value', { exact: true }) });
   const output = strip.locator('.now');
   await expect(output).toHaveText('0');
+  const to = page.getByRole('group', { name: 'Apply to' });
+  const showValues = () => page.getByRole('tab', { name: 'Values' }).click();
 
-  // Highlight: the chosen lights at full until it is turned off; nothing stored.
-  const highlight = page.getByRole('button', { name: 'Highlight: All lights' });
-  await highlight.click();
+  // Highlight: a light at full until it is turned off; nothing stored.
+  const bulb = to.getByRole('button', { name: 'Highlight Wheel spot' });
+  await bulb.click();
+  await expect(bulb).toHaveAttribute('aria-pressed', 'true');
   await expect(output).toHaveText('255');
-  await highlight.click();
+  await bulb.click();
   await expect(output).toHaveText('0');
+  await showValues();
   await expect(page.locator('tr', { hasText: 'Intensity' })).toHaveCount(0);
 
   // A value to all lights, then one to the fixture: the last one wins, the
   // first has no effect and can be removed without changing the lights.
+  // Each light shows the intensity it gets.
+  const chip = to.getByRole('button', { name: 'Wheel spot', exact: true });
+  await expect(chip).toContainText('–');
   const level = page.getByRole('slider', { name: 'Intensity', exact: true });
   await level.fill('40');
-  await page.getByRole('button', { name: 'Add to scene' }).click();
-  await page.getByRole('group', { name: 'Apply to' }).getByRole('button', { name: 'Wheel spot', exact: true }).click();
+  await expect(chip).toContainText('40%');
+  await chip.click();
   await level.fill('100');
-  await page.getByRole('button', { name: 'Add to scene' }).click();
+  await expect(chip).toContainText('100%');
   const first = page.locator('tr', { hasText: 'Intensity 40%' });
   await expect(first).toHaveClass(/\bcovered\b/);
   await expect(first).toContainText('no effect');
   await expect(page.locator('tr', { hasText: 'Intensity 100%' })).not.toHaveClass(/\bcovered\b/);
-  await page.getByRole('button', { name: 'Remove 1 value with no effect' }).click();
+  await sceneMenu(page, 'Remove 1 value with no effect');
   await expect(first).toHaveCount(0);
   await expect(page.locator('tr', { hasText: 'Intensity 100%' })).toHaveCount(1);
 
-  // Own times for the intensity, and the delay spread over the lights.
+  // The times are folded into a line at the bottom: own times for the
+  // intensity, and the delay spread over the lights.
+  await expect(page.getByLabel('Delay over the lights')).toBeHidden();
+  await page.locator('summary', { hasText: 'Timing' }).click();
   await page.getByText('Times per attribute').click();
   await page.getByLabel('Intensity: own times').check();
   await expect(page.locator('.kind', { hasText: 'Intensity' }).getByRole('button', { name: /^Fade in/ })).toBeVisible();
   await page.getByLabel('Delay over the lights').selectOption('from_center');
   await expect(page.getByRole('button', { name: 'Step: 1/4 beat' })).toBeVisible();
+  await expect(page.locator('summary', { hasText: 'Timing' })).toContainText('own times: intensity');
+  await showChannels(page);
 
   // Starting the scene pauses the live preview, so its own fades show.
   const live = page.getByLabel('Live preview on the lights');
