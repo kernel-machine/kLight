@@ -163,6 +163,8 @@ fn run(args: Args) -> Result<(), String> {
     let hooks = LoopHooks {
         on_start: Some(Box::new(|| raise_priority("tick"))),
         on_tick: None,
+        on_timing: None,
+        probe: None,
     };
     let tick =
         TickLoop::spawn(engine, clock.clone(), cmd_rx, res_tx, hooks).map_err(|e| e.to_string())?;

@@ -17,6 +17,48 @@ use crate::stats::JitterWindow;
 
 /// Callback run after every tick.
 pub type TickHook = Box<dyn FnMut(&Engine) + Send>;
+/// Timing of one tick, in microseconds of the loop's clock.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TickTiming {
+    /// When the tick was due.
+    pub due_us: u64,
+    /// When it started (`start_us - due_us` is the wake-up jitter: the OS).
+    pub start_us: u64,
+    /// How long commands and the tick took, in wall time (the engine's work,
+    /// plus any time the OS did not run it).
+    pub work_us: u64,
+    /// What the thread probe saw during the work, when there is one.
+    pub probe: Option<ProbeDelta>,
+}
+
+/// A reading of the tick thread taken by a [`ThreadProbe`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ThreadSample {
+    /// CPU time used by the thread so far (not counting time the OS or the
+    /// hypervisor did not run it).
+    pub cpu_us: u64,
+    /// Times the thread gave up the CPU by itself so far: blocked on a lock,
+    /// slept or waited for I/O.
+    pub voluntary_switches: u64,
+}
+
+/// What happened on the tick thread between the start and the end of the
+/// work of one tick.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ProbeDelta {
+    pub cpu_us: u64,
+    pub voluntary_switches: u64,
+}
+
+/// Reads the calling (tick) thread's CPU time and voluntary context switches,
+/// at the start and the end of every tick's work. OS calls stay out of this
+/// crate: the soak test passes one. It must be quick and must not block.
+pub type ThreadProbe = Box<dyn FnMut() -> Option<ThreadSample> + Send>;
+
+/// Callback run after every tick with its timing, on the tick thread: it must
+/// not block or allocate (e.g. a `try_send` on a bounded channel). Used by
+/// the soak test to tell the engine's slowness from the host's.
+pub type TimingHook = Box<dyn FnMut(TickTiming) + Send>;
 /// Callback run once on the tick thread before the loop starts (e.g. to
 /// raise the thread priority, which needs OS calls kept out of this crate).
 pub type StartHook = Box<dyn FnOnce() + Send>;
@@ -25,6 +67,8 @@ pub type StartHook = Box<dyn FnOnce() + Send>;
 pub struct LoopHooks {
     pub on_start: Option<StartHook>,
     pub on_tick: Option<TickHook>,
+    pub on_timing: Option<TimingHook>,
+    pub probe: Option<ThreadProbe>,
 }
 
 /// Handle to a running tick loop.
@@ -48,7 +92,8 @@ impl TickLoop {
         let handle = std::thread::Builder::new()
             .name("klight-tick".into())
             .spawn(move || {
-                if let Some(f) = hooks.on_start {
+                let mut hooks = hooks;
+                if let Some(f) = hooks.on_start.take() {
                     f();
                 }
                 run(
@@ -57,7 +102,7 @@ impl TickLoop {
                     &commands,
                     &results,
                     &stop_flag,
-                    hooks.on_tick,
+                    &mut hooks,
                 );
                 engine
             })?;
@@ -89,7 +134,7 @@ fn run(
     commands: &Receiver<CommandEnvelope>,
     results: &Sender<CommandResult>,
     stop: &AtomicBool,
-    mut on_tick: Option<TickHook>,
+    hooks: &mut LoopHooks,
 ) {
     let shared = engine.shared();
     let mut window = JitterWindow::default();
@@ -99,6 +144,7 @@ fn run(
         let hz = u64::from(engine.show().settings.tick_hz.clamp(1, 1000));
         let period = 1_000_000 / hz;
         let now = clock.now_us();
+        let before = sample(&mut hooks.probe);
         let jitter = now.saturating_sub(next);
         window.record(u32::try_from(jitter).unwrap_or(u32::MAX));
         if window.count() >= u32::try_from(hz).unwrap_or(44) {
@@ -121,7 +167,7 @@ fn run(
                     .fetch_add(1, Ordering::Relaxed);
             }
             engine.tick(now);
-            if let Some(cb) = on_tick.as_mut() {
+            if let Some(cb) = hooks.on_tick.as_mut() {
                 cb(engine);
             }
         }));
@@ -133,22 +179,43 @@ fn run(
             );
         }
         let work = clock.now_us().saturating_sub(now);
+        let after = sample(&mut hooks.probe);
         shared
             .stats
             .work_us
             .store(u32::try_from(work).unwrap_or(u32::MAX), Ordering::Relaxed);
         shared.stats.ticks.fetch_add(1, Ordering::Relaxed);
+        if let Some(cb) = hooks.on_timing.as_mut() {
+            let timing = TickTiming {
+                due_us: next,
+                start_us: now,
+                work_us: work,
+                probe: before.zip(after).map(|(b, a)| ProbeDelta {
+                    cpu_us: a.cpu_us.saturating_sub(b.cpu_us),
+                    voluntary_switches: a.voluntary_switches.saturating_sub(b.voluntary_switches),
+                }),
+            };
+            if catch_unwind(AssertUnwindSafe(|| cb(timing))).is_err() {
+                tracing::error!("panic in timing hook caught");
+            }
+        }
 
         next = next.saturating_add(period);
-        let after = clock.now_us();
-        if after > next {
+        let end = clock.now_us();
+        if end > next {
             // Overrun: skip missed ticks instead of bursting.
             shared.stats.overruns.fetch_add(1, Ordering::Relaxed);
-            next = after;
+            next = end;
             continue;
         }
         wait_until(clock, next, stop);
     }
+}
+
+/// One reading of the probe, if any; a panicking probe reads as nothing.
+fn sample(probe: &mut Option<ThreadProbe>) -> Option<ThreadSample> {
+    let p = probe.as_mut()?;
+    catch_unwind(AssertUnwindSafe(p)).ok().flatten()
 }
 
 /// Sleeps most of the remaining time, then spins for precision.

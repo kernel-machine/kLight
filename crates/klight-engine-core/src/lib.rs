@@ -20,5 +20,7 @@ pub mod stats;
 pub use clock::{Clock, MonotonicClock, VirtualClock};
 pub use engine::{Engine, EngineConfig, PREVIEW_HOLD_US};
 pub use frame::{DmxFrame, FrameSlot};
-pub use runner::{LoopHooks, TickLoop};
+pub use runner::{
+    LoopHooks, ProbeDelta, ThreadProbe, ThreadSample, TickLoop, TickTiming, TimingHook,
+};
 pub use shared::{EngineShared, TickStatsSnapshot, UniverseOutput};
