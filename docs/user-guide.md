@@ -65,6 +65,12 @@ From a tablet or phone open `http://<pc-address>:9400/?token=<token>`.
   cells at random. Chase, wave, gradient and fill move across the columns or
   across the rows; *Mode* is loop, single shot or ping-pong, and *Fade in* /
   *Fade out* bring the level up when it starts and down when it is stopped.
+  *Controls* chooses what the pattern drives: the *Color* of the lights, or
+  only their *Dimmer*. On the dimmer the colors become levels (the brightness
+  of the pattern) and the lights keep the colors of the scenes: for example a
+  scene that gives the bar its colors, without intensity, and a wave on the
+  dimmer running over them. Intensity adds up (the highest wins), so a scene
+  that also sets it keeps the lights at least that bright.
 - **Virtual Console**: in Design mode add and move widgets; in Show mode the
   widgets are live and the structure is locked.
 - **Simple Desk**: tap a group or some fixtures, then an intention (intensity,

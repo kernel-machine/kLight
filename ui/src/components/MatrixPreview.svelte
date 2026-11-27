@@ -34,7 +34,7 @@
     <span class="muted">This group has no lights: add some in Fixtures → Groups.</span>
   {/each}
 </div>
-<p class="muted small">{layout.width} × {layout.height} grid, {layout.positions.length} heads, numbered in group order. Their places in the grid are set in Fixtures → Groups.</p>
+<p class="muted small">{layout.width} × {layout.height} grid, {layout.positions.length} heads, numbered in group order. Their places in the grid are set in Fixtures → Groups.{#if efx.controls === 'dimmer'} On the dimmer: the gray is the intensity, the colors come from the scenes.{/if}</p>
 
 <style>
   .matrix {

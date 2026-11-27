@@ -134,6 +134,7 @@ fn steady_state_tick_does_not_allocate() {
                     period: TimeValue::Ms(3000),
                     direction: Direction::Forward,
                     axis: MatrixAxis::Vertical,
+                    controls: MatrixControls::Color,
                     run_mode: klight_model::function::RunMode::PingPong,
                     fade_in: TimeValue::Beats(2.0),
                     fade_out: TimeValue::ZERO,

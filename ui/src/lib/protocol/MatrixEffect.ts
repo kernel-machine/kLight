@@ -3,6 +3,7 @@ import type { Direction } from "./Direction";
 import type { GroupId } from "./GroupId";
 import type { MatrixAlgorithm } from "./MatrixAlgorithm";
 import type { MatrixAxis } from "./MatrixAxis";
+import type { MatrixControls } from "./MatrixControls";
 import type { RunMode } from "./RunMode";
 import type { TimeValue } from "./TimeValue";
 
@@ -11,6 +12,11 @@ export type MatrixEffect = { group: GroupId, algorithm: MatrixAlgorithm,
  * Duration of one animation cycle.
  */
 period: TimeValue, direction: Direction, axis: MatrixAxis, 
+/**
+ * What the effect drives on the lights: their color, or only their
+ * intensity.
+ */
+controls: MatrixControls, 
 /**
  * Loop, one cycle then stop, or forth and back.
  */

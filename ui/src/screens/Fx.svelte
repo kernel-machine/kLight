@@ -48,7 +48,7 @@
       chaser: { type: 'chaser', steps: [], hold: { beats: 1 }, fade: { ms: 0 }, direction: 'Forward', run_mode: 'Loop' },
       cue_list: { type: 'cue_list', cues: [], move_in_black: true },
       movement_effect: { type: 'movement_effect', group: firstGroup, shape: { type: 'circle' }, center_pan: 0, center_tilt: 0, width: 60, height: 30, period: { beats: 4 }, phase_spread: 0, direction: 'Forward', rotation: 0, mirror: 'none', run_mode: 'Loop', relative: false, fade_in: { ms: 0 }, fade_out: { ms: 0 } },
-      matrix_effect: { type: 'matrix_effect', group: firstGroup, algorithm: { type: 'chase', color: hexToColor('#ff0000'), background: hexToColor('#000000') }, period: { beats: 2 }, direction: 'Forward', axis: 'horizontal', run_mode: 'Loop', fade_in: { ms: 0 }, fade_out: { ms: 0 } },
+      matrix_effect: { type: 'matrix_effect', group: firstGroup, algorithm: { type: 'chase', color: hexToColor('#ff0000'), background: hexToColor('#000000') }, period: { beats: 2 }, direction: 'Forward', axis: 'horizontal', controls: 'color', run_mode: 'Loop', fade_in: { ms: 0 }, fade_out: { ms: 0 } },
       collection: { type: 'collection', functions: [] },
     };
     if (!(await save({ id, name: `${kindLabel(type)} ${id}`, kind: kinds[type], folder }))) return;

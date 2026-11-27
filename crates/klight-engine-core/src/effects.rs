@@ -5,7 +5,9 @@ use std::f32::consts::TAU;
 
 use klight_fixtures::convert::{degrees_to_dmx16, dmx16_to_degrees, unit_to16};
 use klight_model::function::{Direction, MovementShape, RunMode};
-use klight_model::{Color, MatrixAlgorithm, MatrixAxis, MatrixEffect, MovementEffect, TimeValue};
+use klight_model::{
+    Color, MatrixAlgorithm, MatrixAxis, MatrixControls, MatrixEffect, MovementEffect, TimeValue,
+};
 
 use crate::compile::{CompiledMatrix, CompiledMovement, LogicalChannel, NO_CHANNEL};
 use crate::music::{beats_to_fixed, MusicClock};
@@ -418,6 +420,36 @@ pub fn matrix_cell_color(
     .clamped()
 }
 
+/// Brightness of a color (0..=1): its brightest component. What a matrix
+/// that drives the dimmer gives a cell.
+pub fn color_level(c: Color) -> f32 {
+    c.r.max(c.g).max(c.b).clamp(0.0, 1.0)
+}
+
+/// What the cell (x, y) of matrix effect `e` shows at `phase`: its color, or
+/// for an effect that drives the dimmer, the gray of its level (the colors
+/// come from the scenes). Shared with the UI preview.
+pub fn matrix_cell_look(
+    e: &MatrixEffect,
+    width: u16,
+    height: u16,
+    x: u16,
+    y: u16,
+    phase: f32,
+) -> Color {
+    let c = matrix_effect_color(e, width, height, x, y, phase);
+    match e.controls {
+        MatrixControls::Color => c,
+        MatrixControls::Dimmer => {
+            let l = color_level(c);
+            Color { r: l, g: l, b: l }
+        }
+    }
+}
+
+/// Writes every cell: its color at `level` of intensity, or for an effect
+/// that drives the dimmer, only its intensity (its level times `level`),
+/// leaving the color channels to the scenes.
 pub fn render_matrix(
     m: &CompiledMatrix,
     turns: f64,
@@ -429,11 +461,19 @@ pub fn render_matrix(
     let phase = matrix_phase(turns, e.direction, e.run_mode);
     for cell in &m.cells {
         let color = matrix_effect_color(e, m.width, m.height, cell.x, cell.y, phase);
-        write(layer, channels, cell.red, unit_to16(color.r));
-        write(layer, channels, cell.green, unit_to16(color.g));
-        write(layer, channels, cell.blue, unit_to16(color.b));
-        write(layer, channels, cell.white, 0);
-        write(layer, channels, cell.intensity, scale(u16::MAX, level));
+        match e.controls {
+            MatrixControls::Color => {
+                write(layer, channels, cell.red, unit_to16(color.r));
+                write(layer, channels, cell.green, unit_to16(color.g));
+                write(layer, channels, cell.blue, unit_to16(color.b));
+                write(layer, channels, cell.white, 0);
+                write(layer, channels, cell.intensity, scale(u16::MAX, level));
+            }
+            MatrixControls::Dimmer => {
+                let v = scale(unit_to16(color_level(color)), level);
+                write(layer, channels, cell.intensity, v);
+            }
+        }
     }
 }
 

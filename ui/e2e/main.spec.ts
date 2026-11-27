@@ -1697,6 +1697,15 @@ test('a matrix is edited with its own header and its new algorithms and modes', 
   // No axis for twinkle; there is one for fill.
   await expect(page.getByLabel('Axis')).toHaveCount(0);
   await algorithm.getByRole('button', { name: 'Fill' }).click();
+  // On the dimmer only: levels instead of colors, and why the colors stay.
+  const controls = page.getByRole('group', { name: 'Controls' });
+  await controls.getByRole('button', { name: 'Dimmer' }).click();
+  await expect(page.locator('[data-dimmer-hint]')).toBeVisible();
+  await expect(page.locator('input[type=color]')).toHaveCount(0);
+  await expect(page.getByLabel('Level', { exact: true })).toHaveValue('1');
+  await expect(page.getByLabel('Background level')).toHaveValue('0');
+  await page.getByLabel('Level', { exact: true }).fill('0.5');
+  await expect(page.locator('.level', { hasText: 'Level' }).first()).toContainText('50%');
   await page.getByLabel('Axis').selectOption({ label: 'Across the rows' });
   await page.getByLabel('Run mode').selectOption({ label: 'Ping-pong' });
   await page.getByLabel('Fade out', { exact: true }).selectOption({ label: '1 beat' });
@@ -1720,6 +1729,8 @@ test('a matrix is edited with its own header and its new algorithms and modes', 
   await expect(page.getByLabel('Run mode').locator('option:checked')).toHaveText('Single shot');
   await expect(page.getByLabel('Axis').locator('option:checked')).toHaveText('Across the rows');
   await expect(page.getByLabel('Fade out', { exact: true }).locator('option:checked')).toHaveText('1 beat');
+  await expect(controls.getByRole('button', { name: 'Dimmer' })).toHaveClass(/active/);
+  await expect(page.getByLabel('Level', { exact: true })).toHaveValue('0.5');
 
   // Started and stopped from its header (looping, so that it lasts).
   await page.getByLabel('Run mode').selectOption({ label: 'Loop' });

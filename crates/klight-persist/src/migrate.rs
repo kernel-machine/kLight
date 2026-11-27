@@ -65,9 +65,10 @@ fn v3_to_v4(mut v: Value) -> Result<Value, String> {
 
 /// Version 5 gives movement effects a rotation, mirrored heads, a run mode,
 /// a relative mode and fades of their size, and matrix effects an axis, a run
-/// mode, fades of their level and the fill and twinkle algorithms: older shows
-/// are valid as they are (no rotation or mirror, horizontal, looping,
-/// absolute, no fades), only the version number changes.
+/// mode, fades of their level, the fill and twinkle algorithms and the choice
+/// to drive only the dimmer: older shows are valid as they are (no rotation or
+/// mirror, horizontal, on the color, looping, absolute, no fades), only the
+/// version number changes.
 fn v4_to_v5(mut v: Value) -> Result<Value, String> {
     let obj = v.as_object_mut().ok_or("show is not a JSON object")?;
     obj.insert("schema_version".into(), Value::from(5));

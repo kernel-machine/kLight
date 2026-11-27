@@ -182,7 +182,8 @@
         },
         "fade_out": {
           "beats": 1.0
-        }
+        },
+        "controls": "dimmer"
       }
     },
     {

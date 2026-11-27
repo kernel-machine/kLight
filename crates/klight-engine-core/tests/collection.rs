@@ -86,6 +86,7 @@ fn add_effects(e: &mut Engine) {
         period: TimeValue::Ms(400),
         direction: Direction::Forward,
         axis: MatrixAxis::Horizontal,
+        controls: MatrixControls::Color,
         run_mode: klight_model::function::RunMode::Loop,
         fade_in: TimeValue::ZERO,
         fade_out: TimeValue::ZERO,

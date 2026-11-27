@@ -295,6 +295,11 @@ consoles (grandMA, MagicQ), with a simple interface.
   per cycle, the same every time) (in Rust, in the core), and:
   - **axis**: chase, wave, gradient and fill move across the columns or
     across the rows; text always scrolls left;
+  - **controls**: the color (every cell gets the color of the pattern, at the
+    effect's level of intensity), or the dimmer only (every cell gets the
+    brightness of the pattern, its brightest component, as intensity; the
+    color channels are left to the scenes). Intensity merges HTP (§8.3), so a
+    scene that also sets it raises the floor of the effect;
   - **run mode**: loop, single shot (one cycle, then the effect stops),
     ping-pong;
   - **fade in / fade out of the level**: from nothing when it starts, back to

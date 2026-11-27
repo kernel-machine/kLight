@@ -10,7 +10,7 @@
 
 use klight_engine_core::compile::CompiledShow;
 use klight_engine_core::effects::{
-    head_phase, matrix_effect_color, matrix_phase, movement_path_point, movement_point,
+    head_phase, matrix_cell_look, matrix_phase, movement_path_point, movement_point,
 };
 use klight_engine_core::preview::{movement_reach, scene_channels};
 use klight_engine_core::scene_edit;
@@ -364,6 +364,15 @@ pub fn set_scene_channel(
     set_scene_channel_json(values, fixture, channel, value).map_err(|e| JsError::new(&e))
 }
 
+// ---------------------------------------------------------------- matrix
+
+/// Brightness (0..=1) of a linear RGB color, as a matrix that drives the
+/// dimmer reads it: its brightest component.
+#[wasm_bindgen]
+pub fn color_level(r: f32, g: f32, b: f32) -> f32 {
+    klight_engine_core::effects::color_level(klight_model::Color { r, g, b })
+}
+
 // ---------------------------------------------------------------- cue lists
 
 /// As a JavaScript number with the same digits as the cue number (an `f32`
@@ -479,8 +488,7 @@ impl MatrixView {
             .positions
             .iter()
             .flat_map(|p| {
-                let c =
-                    matrix_effect_color(e, self.layout.width, self.layout.height, p.x, p.y, phase);
+                let c = matrix_cell_look(e, self.layout.width, self.layout.height, p.x, p.y, phase);
                 [c.r, c.g, c.b]
             })
             .collect()

@@ -392,6 +392,20 @@ pub enum MatrixAlgorithm {
     },
 }
 
+/// What a matrix effect drives on the lights.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[serde(rename_all = "snake_case")]
+pub enum MatrixControls {
+    /// The color of every cell, at the effect's level of intensity.
+    #[default]
+    Color,
+    /// Only the intensity of every cell: the brightness of the pattern (its
+    /// brightest color component). The colors stay those the scenes give;
+    /// intensity merges HTP, so scenes that also set it raise the floor.
+    Dimmer,
+}
+
 /// Along which side of the grid a matrix effect moves (chase, wave,
 /// gradient, fill). Text always scrolls left.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -416,6 +430,10 @@ pub struct MatrixEffect {
     pub direction: Direction,
     #[serde(default)]
     pub axis: MatrixAxis,
+    /// What the effect drives on the lights: their color, or only their
+    /// intensity.
+    #[serde(default)]
+    pub controls: MatrixControls,
     /// Loop, one cycle then stop, or forth and back.
     #[serde(default)]
     pub run_mode: RunMode,

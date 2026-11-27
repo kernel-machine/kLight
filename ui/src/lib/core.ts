@@ -4,7 +4,7 @@
 //
 // Call `initCore()` once before using anything else.
 
-import init, { initSync, ShowView, MovementView, MatrixView, insert_cue_number, linear_to_hex, hex_to_linear, set_scene_channel, max_sequence_colors, color_sequence_json, beat_flash_bits, widget_light_code, chaser_step_types, beat_choices, collection_member_types } from './wasm/klight_wasm.js';
+import init, { initSync, ShowView, MovementView, MatrixView, color_level, insert_cue_number, linear_to_hex, hex_to_linear, set_scene_channel, max_sequence_colors, color_sequence_json, beat_flash_bits, widget_light_code, chaser_step_types, beat_choices, collection_member_types } from './wasm/klight_wasm.js';
 import type {
   ChaserTimes,
   Cue,
@@ -174,6 +174,9 @@ export function cueListTimes(show: Show, functionId: number, bpm: number): CueTi
 export function updateCueValues(show: Show, values: SceneValue[], incoming: SceneValue[]): SceneValue[] {
   return JSON.parse(view(show).view.update_cue_values(JSON.stringify(values), JSON.stringify(incoming))) as SceneValue[];
 }
+
+/** Brightness (0..1) of a color as a matrix on the dimmer reads it: its brightest component; from the core. */
+export const colorLevel = (c: Color): number => color_level(c.r, c.g, c.b);
 
 /** The number for a cue inserted at `at`: the roundest number between its neighbours; from the core. */
 export const insertCueNumber = (cues: Cue[], at: number): number => insert_cue_number(JSON.stringify(cues), at);

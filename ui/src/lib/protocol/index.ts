@@ -74,6 +74,7 @@ export type { LightLook } from "./LightLook";
 export type { MappingId } from "./MappingId";
 export type { MatrixAlgorithm } from "./MatrixAlgorithm";
 export type { MatrixAxis } from "./MatrixAxis";
+export type { MatrixControls } from "./MatrixControls";
 export type { MatrixEffect } from "./MatrixEffect";
 export type { ModeDef } from "./ModeDef";
 export type { MovementEffect } from "./MovementEffect";

@@ -6,12 +6,12 @@
   // draft follows the engine without undoing edits still on their way.
   import { untrack } from 'svelte';
   import { app, notify, run } from '../lib/app.svelte';
-  import { groupLayout } from '../lib/core';
+  import { colorLevel, groupLayout } from '../lib/core';
   import { draftSync } from '../lib/draftSync';
   import { editQueue } from '../lib/queue';
   import { colorToHex, hexToColor } from '../lib/show';
   import TimeSelect from './TimeSelect.svelte';
-  import type { Color, Function as Fn, MatrixAlgorithm, MatrixAxis, MatrixEffect, RunMode } from '../lib/protocol';
+  import type { Color, Function as Fn, MatrixAlgorithm, MatrixAxis, MatrixControls, MatrixEffect, RunMode } from '../lib/protocol';
   import MatrixPreview from './MatrixPreview.svelte';
 
   let { f, onduplicate, ondelete }: { f: Fn; onduplicate: () => void; ondelete: () => void } = $props();
@@ -94,6 +94,13 @@
   /** Algorithms that move along an axis. */
   const ALONG = new Set<MatrixAlgorithm['type']>(['chase', 'wave', 'gradient', 'fill']);
   const COLOR_NAMES: Record<string, string> = { color: 'Color', background: 'Background', from: 'From', to: 'To' };
+  const LEVEL_NAMES: Record<string, string> = { color: 'Level', background: 'Background level', from: 'From', to: 'To' };
+  const CONTROLS: Array<{ value: MatrixControls; label: string; title: string }> = [
+    { value: 'color', label: 'Color', title: 'The pattern sets the color of the lights' },
+    { value: 'dimmer', label: 'Dimmer', title: 'The pattern sets only the intensity; the colors come from the scenes' },
+  ];
+  /** On the dimmer, a gray of the level: what the engine reads back is the level. */
+  const gray = (l: number): Color => ({ r: l, g: l, b: l });
   const RUN_MODES: Array<[RunMode, string]> = [['Loop', 'Loop'], ['SingleShot', 'Single shot'], ['PingPong', 'Ping-pong']];
   const AXES: Array<[MatrixAxis, string]> = [['horizontal', 'Across the columns'], ['vertical', 'Across the rows']];
 
@@ -159,16 +166,38 @@
           {#each show.groups as g (g.id)}<option value={g.id}>{g.name}</option>{/each}
         </select>
       </label>
+      <div class="seg" role="group" aria-label="Controls">
+        {#each CONTROLS as c (c.value)}
+          <button class:active={draft.controls === c.value} title={c.title} onclick={() => { draft!.controls = c.value; commit(); }}>{c.label}</button>
+        {/each}
+      </div>
+      {#if draft.controls === 'dimmer'}
+        <p class="hint" data-dimmer-hint>
+          The pattern drives the intensity only: give these lights their colors with a scene. Intensity adds up
+          (highest wins), so a scene that also sets it keeps the lights at least that bright.
+        </p>
+      {/if}
       <div class="algos" role="group" aria-label="Algorithm">
         {#each ALGORITHMS as a (a.type)}
           <button class:active={draft.algorithm.type === a.type} title={a.title} onclick={() => { draft!.algorithm = a.make(); commit(); }}>{a.label}</button>
         {/each}
       </div>
-      <div class="row colors">
+      {#if draft.controls === 'dimmer'}
         {#each colorFields as [key, c] (key)}
-          <label class="row">{COLOR_NAMES[key] ?? key} <input type="color" aria-label={COLOR_NAMES[key] ?? key} value={colorToHex(c)} oninput={(e) => setField(key, hexToColor(e.currentTarget.value))} onchange={commit} /></label>
+          {@const level = colorLevel(c)}
+          <label class="row level">
+            <span>{LEVEL_NAMES[key] ?? key}</span>
+            <input type="range" min="0" max="1" step="0.01" aria-label={LEVEL_NAMES[key] ?? key} value={level} oninput={(e) => setField(key, gray(Number(e.currentTarget.value)))} onchange={commit} />
+            <span class="pct">{Math.round(level * 100)}%</span>
+          </label>
         {/each}
-      </div>
+      {:else}
+        <div class="row colors">
+          {#each colorFields as [key, c] (key)}
+            <label class="row">{COLOR_NAMES[key] ?? key} <input type="color" aria-label={COLOR_NAMES[key] ?? key} value={colorToHex(c)} oninput={(e) => setField(key, hexToColor(e.currentTarget.value))} onchange={commit} /></label>
+          {/each}
+        </div>
+      {/if}
       {#if draft.algorithm.type === 'wave'}
         {@const a = draft.algorithm}
         <label class="row">Wavelength <input type="range" min="1" max="32" step="0.5" value={a.wavelength} oninput={(e) => setField('wavelength', Number(e.currentTarget.value))} onchange={commit} /> {a.wavelength} cells</label>
@@ -221,4 +250,10 @@
   @media (max-width: 1100px) { .editor { grid-template-columns: 1fr; } }
   .algos { display: flex; flex-wrap: wrap; gap: 4px; }
   .colors { flex-wrap: wrap; gap: 12px; }
+  .seg { display: flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; width: fit-content; }
+  .seg button { border: none; border-radius: 0; }
+  .seg button + button { border-left: 1px solid var(--border); }
+  .hint { margin: 0; font-size: 12px; color: var(--muted); }
+  .level { display: grid; grid-template-columns: 120px 1fr 44px; gap: 6px; align-items: center; }
+  .pct { text-align: right; font-variant-numeric: tabular-nums; }
 </style>
