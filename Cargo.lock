@@ -793,6 +793,7 @@ dependencies = [
  "klight-io",
  "klight-model",
  "klight-persist",
+ "nix",
  "proptest",
  "serde",
  "serde_json",

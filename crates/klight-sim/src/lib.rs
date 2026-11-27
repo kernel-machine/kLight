@@ -3,3 +3,4 @@
 
 pub mod golden;
 pub mod scenario;
+pub mod soak;
