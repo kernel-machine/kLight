@@ -82,6 +82,23 @@ pub fn add_scene_values(
     out
 }
 
+/// The values of a cue after applying `incoming` (the programmer, when a cue
+/// is updated): as [`add_scene_values`] does for a scene, values in the same
+/// slot are replaced and channels set by hand that `incoming` writes are
+/// released.
+pub fn update_cue_values(
+    show: &Show,
+    compiled: &CompiledShow,
+    values: &[SceneValue],
+    incoming: &[SceneValue],
+) -> Vec<SceneValue> {
+    let scene = Scene {
+        values: values.to_vec(),
+        ..Scene::default()
+    };
+    add_scene_values(show, compiled, &scene, incoming).values
+}
+
 /// `scene` with more lights: groups, which stay linked to the group, and
 /// fixtures (a head stands for its fixture). Lights already in it are left out.
 /// Unless the scene says that new lights follow it, the values of the whole

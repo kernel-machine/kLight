@@ -1,6 +1,6 @@
 //! Physical units / intentions → DMX values for a specific fixture head.
 
-use klight_model::patch::ColorCalibration;
+use klight_model::patch::{ColorCalibration, PositionLimits};
 use klight_model::{
     attributes::clamp01, Attribute, AttributeValue, CapabilityKind, Color, FixtureDefinition,
     Orientation, StrobeValue,
@@ -106,7 +106,60 @@ pub fn nearest_color<I: IntoIterator<Item = Color>>(target: Color, candidates: I
     best.map(|(i, _)| i)
 }
 
-fn apply_calibration(c: Color, cal: Option<&ColorCalibration>) -> Color {
+/// Pan and tilt as the scenes give them (degrees from the center, in the
+/// frame of the show) → the degrees for the pan channel and for the tilt
+/// channel of a fixture with this orientation: inverted, upside down, and
+/// with the two swapped if it is mounted so.
+pub fn orient_pan_tilt(o: Orientation, pan: f32, tilt: f32) -> (f32, f32) {
+    let pan = if o.effective_invert_pan() { -pan } else { pan };
+    let tilt = if o.effective_invert_tilt() {
+        -tilt
+    } else {
+        tilt
+    };
+    if o.swap_pan_tilt {
+        (tilt, pan)
+    } else {
+        (pan, tilt)
+    }
+}
+
+/// The lowest and highest DMX value (16 bit) the pan channel and the tilt
+/// channel of a fixture may have so that it stays inside `limits`, which are
+/// in the frame of the show: turned by the orientation like the angles are,
+/// and converted with the range of the channel they land on. A channel with
+/// no range is not bound.
+pub fn limits_to_dmx(
+    o: Orientation,
+    limits: &PositionLimits,
+    pan_range: f32,
+    tilt_range: f32,
+) -> ((u16, u16), (u16, u16)) {
+    // The two ends of each axis, as angles for the channels; the inversion
+    // of an axis turns the ends around, so they are put in order after.
+    let ends = |a: f32, b: f32, c: f32, d: f32| {
+        let (pan_a, tilt_a) = orient_pan_tilt(o, a, c);
+        let (pan_b, tilt_b) = orient_pan_tilt(o, b, d);
+        ((pan_a, pan_b), (tilt_a, tilt_b))
+    };
+    let (pan, tilt) = ends(
+        limits.pan_min,
+        limits.pan_max,
+        limits.tilt_min,
+        limits.tilt_max,
+    );
+    let bounds = |(x, y): (f32, f32), range: f32| {
+        if !range.is_finite() || range <= 0.0 {
+            return (0, u16::MAX);
+        }
+        let (x, y) = (degrees_to_dmx16(x, range), degrees_to_dmx16(y, range));
+        (x.min(y), x.max(y))
+    };
+    (bounds(pan, pan_range), bounds(tilt, tilt_range))
+}
+
+/// The desired color after the fixture's calibration, if it has one.
+pub fn apply_calibration(c: Color, cal: Option<&ColorCalibration>) -> Color {
     let c = c.clamped();
     let Some(cal) = cal else { return c };
     let m = &cal.matrix;
@@ -116,6 +169,14 @@ fn apply_calibration(c: Color, cal: Option<&ColorCalibration>) -> Color {
         b: m[2][0] * c.r + m[2][1] * c.g + m[2][2] * c.b,
     }
     .clamped()
+}
+
+/// The DMX value of the slot of a color wheel nearest to `c` (already
+/// calibrated), from [`Converter::wheel_options`].
+pub fn nearest_wheel_value(c: Color, options: &[(Color, u8)]) -> Option<u16> {
+    nearest_color(c, options.iter().map(|(c, _)| *c))
+        .and_then(|i| options.get(i))
+        .map(|best| to16(best.1))
 }
 
 /// Additive mix for whatever emitters the head has.
@@ -237,46 +298,25 @@ impl Converter<'_> {
         tilt: f32,
         out: &mut Vec<Resolved>,
     ) -> Result<(), Ignored> {
-        let o = self.orientation;
-        let pan = if o.effective_invert_pan() { -pan } else { pan };
-        let tilt = if o.effective_invert_tilt() {
-            -tilt
-        } else {
-            tilt
-        };
-        let (pan_attr, tilt_attr) = if o.swap_pan_tilt {
-            (Attribute::Tilt, Attribute::Pan)
-        } else {
-            (Attribute::Pan, Attribute::Tilt)
-        };
-        let range_of = |a: Attribute| match a {
-            Attribute::Pan => self.profile.physical.pan_max_deg,
-            _ => self.profile.physical.tilt_max_deg,
-        };
-        let pan_slot = self.profile.find(head, pan_attr);
-        let tilt_slot = self.profile.find(head, tilt_attr);
+        let (pan, tilt) = orient_pan_tilt(self.orientation, pan, tilt);
+        let pan_slot = self.profile.find(head, Attribute::Pan);
+        let tilt_slot = self.profile.find(head, Attribute::Tilt);
         if pan_slot.is_none() && tilt_slot.is_none() {
             return Err(Ignored::NoChannel("pan/tilt"));
         }
         let mut any = false;
-        if let Some((slot, _)) = pan_slot {
-            let r = range_of(pan_attr);
-            if r > 0.0 {
-                out.push(Resolved::Slot {
-                    slot,
-                    value: degrees_to_dmx16(pan, r),
-                });
-                any = true;
-            }
-        }
-        if let Some((slot, _)) = tilt_slot {
-            let r = range_of(tilt_attr);
-            if r > 0.0 {
-                out.push(Resolved::Slot {
-                    slot,
-                    value: degrees_to_dmx16(tilt, r),
-                });
-                any = true;
+        for (found, degrees, range) in [
+            (pan_slot, pan, self.profile.physical.pan_max_deg),
+            (tilt_slot, tilt, self.profile.physical.tilt_max_deg),
+        ] {
+            if let Some((slot, _)) = found {
+                if range > 0.0 {
+                    out.push(Resolved::Slot {
+                        slot,
+                        value: degrees_to_dmx16(degrees, range),
+                    });
+                    any = true;
+                }
             }
         }
         if any {
@@ -333,10 +373,24 @@ impl Converter<'_> {
             }
             return Ok(());
         }
-        if let Some((slot, s)) = p.find(head, Attribute::ColorWheel) {
-            let ch = self.channel_of(s).ok_or(Ignored::NoChannel("color"))?;
-            let options: Vec<(Color, u8)> = ch
-                .capabilities
+        if let Some((slot, _)) = p.find(head, Attribute::ColorWheel) {
+            let options = self
+                .wheel_options(head)
+                .ok_or(Ignored::NoChannel("color"))?;
+            let value = nearest_wheel_value(c, &options).ok_or(Ignored::NoChannel("color"))?;
+            out.push(Resolved::Slot { slot, value });
+            return Ok(());
+        }
+        Err(Ignored::NoChannel("color"))
+    }
+
+    /// The colors of the color wheel of `head`, each with the DMX value that
+    /// selects it (an open slot counts as white), or none if it has no wheel.
+    pub fn wheel_options(&self, head: u16) -> Option<Vec<(Color, u8)>> {
+        let (_, s) = self.profile.find(head, Attribute::ColorWheel)?;
+        let ch = self.channel_of(s)?;
+        Some(
+            ch.capabilities
                 .iter()
                 .filter_map(|cap| match cap.kind {
                     CapabilityKind::Color {
@@ -346,17 +400,8 @@ impl Converter<'_> {
                     CapabilityKind::Open => Some((Color::WHITE, cap.midpoint())),
                     _ => None,
                 })
-                .collect();
-            let best = nearest_color(c, options.iter().map(|(c, _)| *c))
-                .and_then(|i| options.get(i))
-                .ok_or(Ignored::NoChannel("color"))?;
-            out.push(Resolved::Slot {
-                slot,
-                value: to16(best.1),
-            });
-            return Ok(());
-        }
-        Err(Ignored::NoChannel("color"))
+                .collect(),
+        )
     }
 
     fn resolve_named(
@@ -486,5 +531,113 @@ mod tests {
     fn nearest_color_picks_red() {
         let opts = [Color::WHITE, Color::new(0.8, 0.05, 0.0), Color::BLUE];
         assert_eq!(nearest_color(Color::RED, opts), Some(1));
+    }
+
+    use proptest::prelude::*;
+
+    fn orientation(
+        invert_pan: bool,
+        invert_tilt: bool,
+        swap: bool,
+        upside_down: bool,
+    ) -> Orientation {
+        Orientation {
+            invert_pan,
+            invert_tilt,
+            swap_pan_tilt: swap,
+            upside_down,
+        }
+    }
+
+    #[test]
+    fn the_orientation_turns_the_show_frame_into_the_channels() {
+        let o = Orientation::default();
+        assert_eq!(orient_pan_tilt(o, 10.0, 20.0), (10.0, 20.0));
+        assert_eq!(
+            orient_pan_tilt(orientation(true, false, false, false), 10.0, 20.0),
+            (-10.0, 20.0)
+        );
+        assert_eq!(
+            orient_pan_tilt(orientation(false, true, false, false), 10.0, 20.0),
+            (10.0, -20.0)
+        );
+        // Swapped: the pan of the show goes to the tilt channel.
+        assert_eq!(
+            orient_pan_tilt(orientation(false, false, true, false), 10.0, 20.0),
+            (20.0, 10.0)
+        );
+        // Upside down mirrors both.
+        assert_eq!(
+            orient_pan_tilt(orientation(false, false, false, true), 10.0, 20.0),
+            (-10.0, -20.0)
+        );
+        // Inverted first, then swapped.
+        assert_eq!(
+            orient_pan_tilt(orientation(true, false, true, false), 10.0, 20.0),
+            (20.0, -10.0)
+        );
+    }
+
+    #[test]
+    fn limits_become_bounds_of_the_two_channels() {
+        let l = PositionLimits {
+            pan_min: -90.0,
+            pan_max: 90.0,
+            tilt_min: -20.0,
+            tilt_max: 30.0,
+        };
+        let ((plo, phi), (tlo, thi)) = limits_to_dmx(Orientation::default(), &l, 540.0, 270.0);
+        assert_eq!(plo, degrees_to_dmx16(-90.0, 540.0));
+        assert_eq!(phi, degrees_to_dmx16(90.0, 540.0));
+        assert_eq!(tlo, degrees_to_dmx16(-20.0, 270.0));
+        assert_eq!(thi, degrees_to_dmx16(30.0, 270.0));
+        // Inverted tilt: the bounds turn around the center.
+        let o = orientation(false, true, false, false);
+        let (_, (tlo, thi)) = limits_to_dmx(o, &l, 540.0, 270.0);
+        assert_eq!(tlo, degrees_to_dmx16(-30.0, 270.0));
+        assert_eq!(thi, degrees_to_dmx16(20.0, 270.0));
+        // Swapped: the tilt limits bound the pan channel, in its range.
+        let o = orientation(false, false, true, false);
+        let ((plo, phi), _) = limits_to_dmx(o, &l, 540.0, 270.0);
+        assert_eq!(plo, degrees_to_dmx16(-20.0, 540.0));
+        assert_eq!(phi, degrees_to_dmx16(30.0, 540.0));
+        // A channel without a range is not bound.
+        let ((plo, phi), _) = limits_to_dmx(Orientation::default(), &l, 0.0, 270.0);
+        assert_eq!((plo, phi), (0, u16::MAX));
+    }
+
+    proptest! {
+        /// Clamping the channel value to the bounds is clamping the angle of
+        /// the show in its own frame, whatever the orientation.
+        #[test]
+        fn clamping_the_channels_is_clamping_the_show_angle(
+            (invert_pan, invert_tilt, swap, upside_down) in (any::<bool>(), any::<bool>(), any::<bool>(), any::<bool>()),
+            (a, b, c, d) in (-270.0f32..270.0, -270.0f32..270.0, -135.0f32..135.0, -135.0f32..135.0),
+            (pan, tilt) in (-400.0f32..400.0, -400.0f32..400.0),
+            (pan_range, tilt_range) in (100.0f32..720.0, 100.0f32..360.0),
+        ) {
+            let o = orientation(invert_pan, invert_tilt, swap, upside_down);
+            let l = PositionLimits {
+                pan_min: a.min(b),
+                pan_max: a.max(b),
+                tilt_min: c.min(d),
+                tilt_max: c.max(d),
+            };
+            let ((plo, phi), (tlo, thi)) = limits_to_dmx(o, &l, pan_range, tilt_range);
+            prop_assert!(plo <= phi && tlo <= thi);
+            // The channel values of the angle as asked, and of the angle held
+            // inside the limits in the show frame.
+            let asked = orient_pan_tilt(o, pan, tilt);
+            let held = orient_pan_tilt(
+                o,
+                pan.clamp(l.pan_min, l.pan_max),
+                tilt.clamp(l.tilt_min, l.tilt_max),
+            );
+            let on_pan = |deg: f32| degrees_to_dmx16(deg, pan_range);
+            let on_tilt = |deg: f32| degrees_to_dmx16(deg, tilt_range);
+            let (pan_ch, tilt_ch) = (on_pan(asked.0).clamp(plo, phi), on_tilt(asked.1).clamp(tlo, thi));
+            prop_assert!(pan_ch.abs_diff(on_pan(held.0)) <= 1, "{pan_ch} {}", on_pan(held.0));
+            prop_assert!(tilt_ch.abs_diff(on_tilt(held.1)) <= 1, "{tilt_ch} {}", on_tilt(held.1));
+        }
     }
 }

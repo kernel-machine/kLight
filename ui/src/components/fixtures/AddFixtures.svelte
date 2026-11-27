@@ -143,6 +143,7 @@
         address: base + i * step,
         orientation: { invert_pan: false, invert_tilt: false, swap_pan_tilt: false, upside_down: false },
         calibration: null,
+        position_limits: null,
       };
       if (!(await run({ type: 'patch_fixture', fixture, force: forced }))) return;
     }

@@ -13,7 +13,11 @@ From a tablet or phone open `http://<pc-address>:9400/?token=<token>`.
 
 - **Fixtures**: universes, patch from `.qxf` definitions (the same ones used by
   QLC+), automatic next free address, conflict warnings, head orientation
-  (inverted or swapped pan/tilt, upside-down mounting), groups with order and grid.
+  (inverted or swapped pan/tilt, upside-down mounting), position limits for
+  moving heads (*Limit the position*: the lights never point beyond the pan
+  and tilt you set, whatever plays, so the beams stay away from the audience
+  or the truss; the movement editor shades what is out of reach), groups with
+  order and grid.
 - **FX**: scenes (fades, delays, delays spread over the group, own times per
   attribute), chasers (times in ms or beats), cue lists with GO/Back/Pause and
   *move in black*, movement effects and matrix effects, palettes.
@@ -39,6 +43,13 @@ From a tablet or phone open `http://<pc-address>:9400/?token=<token>`.
   edges to resize it (or focus them and use the arrow keys, Shift for 10°).
   The shaded area is out of reach of the group's lights; if part of the shape
   goes there, a warning says so, because there the heads stop at their limit.
+  The *Type* menu picks the shape: circle, eight, line, polygon (3 to 12
+  sides), sine wave (1 to 8 waves), fan (the heads of the group open to opposite
+  sides from the center, the outer ones as far as the opening, and close
+  again; choosing it sets *Together*, so that they open at the same time,
+  and *Mirrored* is not offered) or Lissajous, each with its own setting under
+  the menu. The cards are *Shape* (the type and its setting) and *Position*
+  (center, size and rotation, also set by dragging the drawing).
   The heads are numbered in group order, as in the list below the preview;
   *Together*, *Wave* and *Even* share the cycle among them (phase spread 0°,
   180° and 360°). *Rotation* turns the shape; *Mirrored* makes every second
@@ -48,6 +59,33 @@ From a tablet or phone open `http://<pc-address>:9400/?token=<token>`.
   its center when it starts, *Fade out* shrinks it back when it is stopped.
   *Relative to the position of the scenes* adds the shape to where the scenes
   put each head: the center becomes an offset from there.
+  The cue list editor runs the show from its header: GO, Back, Pause and
+  Stop; above the cues it shows the cue playing, how far its fade is, and the
+  next one (with the time left when it follows by itself). Set the lights in
+  the Simple Desk, then *Record cue*: the new cue goes after the one playing
+  (or at the end), numbered between its neighbours (1.1 between 1 and 2).
+  Every cue's number, name, fade in, fade out and delay are edited in its row
+  (a bare number is in seconds; "2 beats" follows the tempo), as are *Follow*
+  (wait for GO, or go on after a time) and *Move in black* (as the list, on or
+  off). Its values are shown on demand; *Update* adds the programmer to a cue
+  (the same values are replaced). ⧉ duplicates a cue, ↑/↓ move it, ▶ jumps to
+  it; *Renumber* in the ⋯ menu numbers them 1, 2, 3 again.
+  The matrix editor has Start/Stop and the ⋯ menu too. Its heads are numbered
+  in group order on the grid. Besides solid, chase, wave, gradient and text,
+  *Fill* fills the grid one line at a time, *Rainbow* runs through every hue (*Rainbows*: how many fit the grid; it has no colors to pick, so *Dimmer* is not offered with it, nor it with *Dimmer*) and *Twinkle* lights a share of the
+  cells at random. Chase, wave, gradient and fill move across the columns,
+  across the rows or *From the center*, in rings; a chase can be wider than
+  one line (*Width*). The colors chosen stay when you change the pattern, and
+  the *Colors* card has them (levels on the dimmer). Each light is given the
+  color as a scene would: its white or amber, cyan/magenta/yellow or the
+  nearest slot of its color wheel, and its calibration. *Mode* is loop, single shot or ping-pong, and *Fade in* /
+  *Fade out* bring the level up when it starts and down when it is stopped.
+  *Controls* chooses what the pattern drives: the *Color* of the lights, or
+  only their *Dimmer*. On the dimmer the colors become levels (the brightness
+  of the pattern) and the lights keep the colors of the scenes: for example a
+  scene that gives the bar its colors, without intensity, and a wave on the
+  dimmer running over them. Intensity adds up (the highest wins), so a scene
+  that also sets it keeps the lights at least that bright.
 - **Virtual Console**: in Design mode add and move widgets; in Show mode the
   widgets are live and the structure is locked.
 - **Simple Desk**: tap a group or some fixtures, then an intention (intensity,

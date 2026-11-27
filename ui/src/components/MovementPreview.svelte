@@ -60,12 +60,13 @@
   // What the lights reach (a side without a range is not limited).
   const FAR = 1e4;
   const reachBox = $derived({
-    pan: reach.pan_limit ?? FAR,
-    tilt: reach.tilt_limit ?? FAR,
+    pan: reach.pan_limit ?? ([-FAR, FAR] as [number, number]),
+    tilt: reach.tilt_limit ?? ([-FAR, FAR] as [number, number]),
   });
+  const farthest = (span: [number, number] | null, fallback: number) => (span ? Math.max(Math.abs(span[0]), Math.abs(span[1])) : fallback);
   const fitted = $derived.by(() => {
     if (fullRange) {
-      const hx = Math.max(reach.pan_limit ?? LIMITS.pan, (reach.tilt_limit ?? LIMITS.tilt) * 2) * 1.05;
+      const hx = Math.max(farthest(reach.pan_limit, LIMITS.pan), farthest(reach.tilt_limit, LIMITS.tilt) * 2) * 1.05;
       return { x: -hx, y: -hx / 2, w: hx * 2, h: hx };
     }
     const all = [...path, ...mirroredPath];
@@ -97,7 +98,8 @@
     if (reach.pan_limit === null && reach.tilt_limit === null) return null;
     const [x0, x1, y0, y1] = [box.x, box.x + box.w, -(box.y + box.h), -box.y];
     const { pan: p, tilt: t } = reachBox;
-    return `M${x0},${y0}H${x1}V${y1}H${x0}Z M${-p},${-t}H${p}V${t}H${-p}Z`;
+    // SVG y grows downwards: the tilt of the reach is drawn upside down.
+    return `M${x0},${y0}H${x1}V${y1}H${x0}Z M${p[0]},${-t[1]}H${p[1]}V${-t[0]}H${p[0]}Z`;
   });
   const showNumbers = $derived(count <= 24);
   const hasHeight = $derived(efx.shape.type !== 'line');

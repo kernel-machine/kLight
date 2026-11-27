@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { beatFlash } from './beat';
-import { channelMap, colorSequence, frameFromFunctions, frameKind, functionsUnder, functionColor, groupFixtureIds, groupRows, groupWithFixtures, groupsWithoutFixtures, conflictsWith, mappingConflicts, maxSequenceColors, nextFreeAddress, parseTime, formatBeats, formatTime, beatChoices, timeChoiceIndex, hexToColor, colorToHex } from './show';
+import { channelMap, colorSequence, frameFromFunctions, frameKind, functionsUnder, functionColor, groupFixtureIds, groupRows, groupWithFixtures, groupsWithoutFixtures, conflictsWith, mappingConflicts, maxSequenceColors, nextFreeAddress, parseTime, parseSeconds, formatSeconds, formatBeats, formatTime, beatChoices, timeChoiceIndex, hexToColor, colorToHex } from './show';
 import { sceneValueColor } from './core';
 import type { InputMapping, Show, Widget } from './protocol';
 
@@ -28,6 +28,7 @@ function show(addresses: number[]): Show {
       address: a,
       orientation: { invert_pan: false, invert_tilt: false, swap_pan_tilt: false, upside_down: false },
       calibration: null,
+      position_limits: null,
     })),
     groups: [],
     palettes: [],
@@ -69,6 +70,20 @@ describe('misc helpers', () => {
     expect(parseTime('1.5s')).toEqual({ ms: 1500 });
     expect(parseTime('2 beats')).toEqual({ beats: 2 });
     expect(parseTime('abc')).toBeNull();
+  });
+
+  it('cue times: a bare number is in seconds, and they are written back so', () => {
+    expect(parseSeconds('2')).toEqual({ ms: 2000 });
+    expect(parseSeconds('0.25')).toEqual({ ms: 250 });
+    expect(parseSeconds('300ms')).toEqual({ ms: 300 });
+    expect(parseSeconds('1.5 s')).toEqual({ ms: 1500 });
+    expect(parseSeconds('4 beats')).toEqual({ beats: 4 });
+    expect(parseSeconds('soon')).toBeNull();
+    expect(formatSeconds({ ms: 2000 })).toBe('2 s');
+    expect(formatSeconds({ ms: 250 })).toBe('0.25 s');
+    expect(formatSeconds({ ms: 0 })).toBe('0 s');
+    expect(formatSeconds({ beats: 0.5 })).toBe('1/2 beat');
+    for (const t of [{ ms: 1234 }, { ms: 0 }, { beats: 2 }]) expect(parseSeconds(formatSeconds(t))).toEqual(t);
   });
 
   it('round-trips colors through linear RGB', () => {

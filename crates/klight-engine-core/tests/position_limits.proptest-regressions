@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 31d59bcf1a96a85129b47f961da594a93594d22f910d0e11325c135d46e1ab30 # shrinks to (pan, tilt) = (0.0, 0.0), (raw_pan, raw_tilt) = (0, 0), use_desk = true

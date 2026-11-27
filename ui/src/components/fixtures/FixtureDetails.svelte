@@ -2,7 +2,7 @@
   // Settings of one fixture: only what applies to its type is shown.
   import { app, run } from '../../lib/app.svelte';
   import { conflictsWith, definitionOf, footprint, groupColor, groupsOf, hasColorMixing, hasPosition, modeOf } from '../../lib/show';
-  import type { Orientation, PatchedFixture } from '../../lib/protocol';
+  import type { Orientation, PatchedFixture, PositionLimits } from '../../lib/protocol';
   import ChannelIcon from '../ChannelIcon.svelte';
 
   let { id, onclose }: { id: number; onclose: () => void } = $props();
@@ -19,6 +19,50 @@
   function orient(key: keyof Orientation, value: boolean) {
     if (f) patch({ orientation: { ...f.orientation, [key]: value } }, true);
   }
+  // Where the lights may point, in degrees as the scenes give them. Switched
+  // on, it starts as the whole range of the light. Edits made one after the
+  // other are each built on the one before, not on the engine's version, which
+  // may not have come back yet.
+  const range = $derived(mode ? (mode.physical ?? def?.physical) : undefined);
+  let sent: PositionLimits | null = null;
+  $effect(() => {
+    void id;
+    sent = null;
+  });
+  async function sendLimits(next: PositionLimits | null) {
+    if (!f) return;
+    sent = next;
+    await run({ type: 'patch_fixture', fixture: { ...f, position_limits: next }, force: true });
+    if (sent === next) sent = null;
+  }
+  function limitPosition(on: boolean) {
+    if (!on) return sendLimits(null);
+    const pan = (range?.pan_max_deg ?? 0) / 2;
+    const tilt = (range?.tilt_max_deg ?? 0) / 2;
+    return sendLimits({ pan_min: -pan, pan_max: pan, tilt_min: -tilt, tilt_max: tilt });
+  }
+  /** One bound changed; the other one of its axis follows if they would cross. */
+  function setLimit(key: keyof PositionLimits, raw: string) {
+    const value = Number(raw);
+    const l = sent ?? f?.position_limits;
+    if (!l || raw.trim() === '' || !Number.isFinite(value)) return;
+    const next = { ...l, [key]: value };
+    if (next.pan_min > next.pan_max) {
+      if (key === 'pan_min') next.pan_max = value;
+      else next.pan_min = value;
+    }
+    if (next.tilt_min > next.tilt_max) {
+      if (key === 'tilt_min') next.tilt_max = value;
+      else next.tilt_min = value;
+    }
+    return sendLimits(next);
+  }
+  const LIMIT_FIELDS: Array<[keyof PositionLimits, string]> = [
+    ['pan_min', 'Pan min'],
+    ['pan_max', 'Pan max'],
+    ['tilt_min', 'Tilt min'],
+    ['tilt_max', 'Tilt max'],
+  ];
   function changeMode(name: string) {
     if (!f || !def) return;
     const size = def.modes.find((m) => m.name === name)?.channels.length ?? 0;
@@ -67,6 +111,18 @@
         <label class="row"><input type="checkbox" checked={f.orientation.upside_down} onchange={(e) => orient('upside_down', e.currentTarget.checked)} /> Upside down</label>
       </div>
       <div class="muted small">Range: pan {(mode.physical ?? def.physical).pan_max_deg}°, tilt {(mode.physical ?? def.physical).tilt_max_deg}°</div>
+
+      <h3>Position limits</h3>
+      <label class="row"><input type="checkbox" checked={f.position_limits !== null} onchange={(e) => limitPosition(e.currentTarget.checked)} /> Limit the position</label>
+      {#if f.position_limits}
+        {@const limits = f.position_limits}
+        <div class="grid limits">
+          {#each LIMIT_FIELDS as [key, label] (key)}
+            <label>{label} (°) <input type="number" step="1" aria-label={label} value={limits[key]} onchange={(e) => setLimit(key, e.currentTarget.value)} /></label>
+          {/each}
+        </div>
+      {/if}
+      <div class="muted small">The lights never go beyond these, whatever plays. Use them to keep the beams away from the audience or the truss.</div>
     {/if}
 
     {#if colorMixing}

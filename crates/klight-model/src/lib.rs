@@ -28,14 +28,15 @@ pub use fixture_def::{
 };
 pub use function::{
     ChannelRef, Chaser, ChaserStep, Collection, Cue, CueFollow, CueList, Function,
-    FunctionCategory, FunctionFolder, FunctionKind, MatrixAlgorithm, MatrixEffect, MovementEffect,
-    MovementMirror, Scene, SceneValue, Spread, Target, TimeValue, Timing, ValueSource,
+    FunctionCategory, FunctionFolder, FunctionKind, MatrixAlgorithm, MatrixAxis, MatrixControls,
+    MatrixEffect, MovementEffect, MovementMirror, Scene, SceneValue, Spread, Target, TimeValue,
+    Timing, ValueSource,
 };
 pub use ids::*;
 pub use palette::{Palette, PaletteKind};
 pub use patch::{
     FixtureGroup, GroupLayout, GroupMember, Orientation, OutputAssignment, OutputKind,
-    PatchedFixture, Universe, UNIVERSE_SIZE,
+    PatchedFixture, PositionLimits, Universe, UNIVERSE_SIZE,
 };
 pub use runtime::{
     beat_flash, ActiveFunction, BeatFlash, ChannelOverride, ProgrammerEntry, RuntimeSnapshot,

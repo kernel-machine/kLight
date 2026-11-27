@@ -281,8 +281,41 @@ pub enum MovementShape {
     Circle,
     Eight,
     Line,
-    Square,
-    Lissajous { x_freq: u8, y_freq: u8 },
+    /// A regular polygon, flat at the bottom, fitted to the width and height
+    /// of the effect. Four sides are the square the shape used to be: shows
+    /// saved with `square` open as this.
+    #[serde(alias = "square")]
+    Polygon {
+        #[serde(default = "default_polygon_sides")]
+        sides: u8,
+    },
+    Lissajous {
+        x_freq: u8,
+        y_freq: u8,
+    },
+    /// A sine wave across the width, with `periods` crests, played across and
+    /// back along the same wave.
+    Sine {
+        periods: u8,
+    },
+    /// The heads of the group open from the center to opposite sides (the
+    /// outer ones as far as the width) and close again, holding `hold`
+    /// percent of the cycle open and closed.
+    Fan {
+        hold: u8,
+    },
+}
+
+fn default_polygon_sides() -> u8 {
+    4
+}
+
+fn default_rainbow_spread() -> f32 {
+    1.0
+}
+
+fn default_chase_width() -> u8 {
+    1
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -358,10 +391,13 @@ pub enum MatrixAlgorithm {
     Solid {
         color: Color,
     },
-    /// A single colored column moving across the grid.
+    /// A band of colored lines moving across the grid, `width` cells wide
+    /// (1 to 16; one is a single line).
     Chase {
         color: Color,
         background: Color,
+        #[serde(default = "default_chase_width")]
+        width: u8,
     },
     /// Sine wave of intensity across the X axis.
     Wave {
@@ -377,6 +413,54 @@ pub enum MatrixAlgorithm {
         text: String,
         color: Color,
     },
+    /// The grid fills with the color, one column after the other, over the
+    /// cycle.
+    Fill {
+        color: Color,
+        background: Color,
+    },
+    /// Cells light up at random, a new draw eight times per cycle;
+    /// `density` (0..=1) is the share of cells lit.
+    /// Every hue, along the axis and scrolling with time; `spread` rainbows
+    /// fit the grid (0.25 to 4).
+    Rainbow {
+        #[serde(default = "default_rainbow_spread")]
+        spread: f32,
+    },
+    Twinkle {
+        color: Color,
+        background: Color,
+        density: f32,
+    },
+}
+
+/// What a matrix effect drives on the lights.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[serde(rename_all = "snake_case")]
+pub enum MatrixControls {
+    /// The color of every cell, at the effect's level of intensity.
+    #[default]
+    Color,
+    /// Only the intensity of every cell: the brightness of the pattern (its
+    /// brightest color component). The colors stay those the scenes give;
+    /// intensity merges HTP, so scenes that also set it raise the floor.
+    Dimmer,
+}
+
+/// Along which side of the grid a matrix effect moves (chase, wave,
+/// gradient, fill). Text always scrolls left.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[serde(rename_all = "snake_case")]
+pub enum MatrixAxis {
+    /// Across the columns, left to right.
+    #[default]
+    Horizontal,
+    /// Across the rows, top to bottom.
+    Vertical,
+    /// Out from the center of the grid, in rings.
+    Radial,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -388,6 +472,21 @@ pub struct MatrixEffect {
     pub period: TimeValue,
     #[serde(default)]
     pub direction: Direction,
+    #[serde(default)]
+    pub axis: MatrixAxis,
+    /// What the effect drives on the lights: their color, or only their
+    /// intensity.
+    #[serde(default)]
+    pub controls: MatrixControls,
+    /// Loop, one cycle then stop, or forth and back.
+    #[serde(default)]
+    pub run_mode: RunMode,
+    /// The level rises from nothing when the effect starts, and goes back
+    /// to nothing when it is stopped.
+    #[serde(default)]
+    pub fade_in: TimeValue,
+    #[serde(default)]
+    pub fade_out: TimeValue,
 }
 
 /// Functions played all together, in parallel, of the types in

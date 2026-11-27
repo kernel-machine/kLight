@@ -187,6 +187,11 @@ fn main() {
             },
             period: TimeValue::Ms(1500),
             direction: Direction::Forward,
+            axis: MatrixAxis::Horizontal,
+            controls: MatrixControls::Color,
+            run_mode: klight_model::function::RunMode::Loop,
+            fade_in: TimeValue::ZERO,
+            fade_out: TimeValue::ZERO,
         }),
     });
 

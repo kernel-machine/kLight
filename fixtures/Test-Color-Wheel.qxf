@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE FixtureDefinition>
+<FixtureDefinition xmlns="http://www.qlcplus.org/FixtureDefinition">
+ <Creator><Name>kLight test</Name><Version>1</Version><Author>kLight</Author></Creator>
+ <Manufacturer>Test</Manufacturer>
+ <Model>Color Wheel Spot</Model>
+ <Type>Color Changer</Type>
+ <Channel Name="Dimmer" Preset="IntensityMasterDimmer"/>
+ <Channel Name="Color Wheel" Preset="ColorWheel">
+  <Capability Min="0" Max="9" Preset="ColorMacro" Res1="#ffffff">White</Capability>
+  <Capability Min="10" Max="19" Preset="ColorMacro" Res1="#ff0000">Red</Capability>
+  <Capability Min="20" Max="29" Preset="ColorMacro" Res1="#00ff00">Green</Capability>
+  <Capability Min="30" Max="39" Preset="ColorMacro" Res1="#0000ff">Blue</Capability>
+ </Channel>
+ <Mode Name="2 Channel">
+  <Channel Number="0">Dimmer</Channel>
+  <Channel Number="1">Color Wheel</Channel>
+ </Mode>
+</FixtureDefinition>

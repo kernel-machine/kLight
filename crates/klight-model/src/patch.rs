@@ -86,6 +86,34 @@ pub struct PatchedFixture {
     pub orientation: Orientation,
     #[serde(default)]
     pub calibration: Option<ColorCalibration>,
+    /// Where the lights may point: whatever plays, the pan and tilt are held
+    /// inside (degrees, as in the scenes: after the orientation).
+    #[serde(default)]
+    pub position_limits: Option<PositionLimits>,
+}
+
+/// Minimum and maximum pan and tilt of a fixture, in degrees from the center
+/// of its range, as scenes and effects give them (the orientation of the
+/// fixture is applied after).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct PositionLimits {
+    pub pan_min: f32,
+    pub pan_max: f32,
+    pub tilt_min: f32,
+    pub tilt_max: f32,
+}
+
+impl PositionLimits {
+    /// Both bounds of each axis are numbers and the minimum is not above the
+    /// maximum.
+    pub fn is_valid(&self) -> bool {
+        [self.pan_min, self.pan_max, self.tilt_min, self.tilt_max]
+            .iter()
+            .all(|v| v.is_finite())
+            && self.pan_min <= self.pan_max
+            && self.tilt_min <= self.tilt_max
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

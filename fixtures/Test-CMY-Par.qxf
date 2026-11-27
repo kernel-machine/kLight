@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE FixtureDefinition>
+<FixtureDefinition xmlns="http://www.qlcplus.org/FixtureDefinition">
+ <Creator><Name>kLight test</Name><Version>1</Version><Author>kLight</Author></Creator>
+ <Manufacturer>Test</Manufacturer>
+ <Model>CMY Par</Model>
+ <Type>Color Changer</Type>
+ <Channel Name="Dimmer" Preset="IntensityMasterDimmer"/>
+ <Channel Name="Cyan" Preset="IntensityCyan"/>
+ <Channel Name="Magenta" Preset="IntensityMagenta"/>
+ <Channel Name="Yellow" Preset="IntensityYellow"/>
+ <Mode Name="4 Channel">
+  <Channel Number="0">Dimmer</Channel>
+  <Channel Number="1">Cyan</Channel>
+  <Channel Number="2">Magenta</Channel>
+  <Channel Number="3">Yellow</Channel>
+ </Mode>
+</FixtureDefinition>

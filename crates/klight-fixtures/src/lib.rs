@@ -12,7 +12,10 @@ use std::collections::BTreeMap;
 
 use klight_model::{DefinitionKey, FixtureDefinition};
 
-pub use convert::{Converter, Ignored, Resolved};
+pub use convert::{
+    apply_calibration, limits_to_dmx, nearest_wheel_value, orient_pan_tilt, Converter, Ignored,
+    Resolved,
+};
 pub use profile::{FixtureProfile, HeadProfile, Slot};
 pub use qxf::parse_qxf;
 pub use qxi::{parse_qxi, InputProfileDef};

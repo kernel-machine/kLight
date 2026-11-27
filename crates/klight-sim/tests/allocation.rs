@@ -133,6 +133,11 @@ fn steady_state_tick_does_not_allocate() {
                     },
                     period: TimeValue::Ms(3000),
                     direction: Direction::Forward,
+                    axis: MatrixAxis::Vertical,
+                    controls: MatrixControls::Color,
+                    run_mode: klight_model::function::RunMode::PingPong,
+                    fade_in: TimeValue::Beats(2.0),
+                    fade_out: TimeValue::ZERO,
                 }),
             },
         },
@@ -242,7 +247,69 @@ fn steady_state_tick_does_not_allocate() {
             },
         },
     );
-    for id in [1, 2, 3, 6, 7, 8, 11] {
+    // The other shapes of the movement, running together with the first.
+    for (id, shape) in [
+        (12, MovementShape::Polygon { sides: 5 }),
+        (13, MovementShape::Sine { periods: 3 }),
+        (14, MovementShape::Fan { hold: 20 }),
+    ] {
+        ok(
+            &mut e,
+            0,
+            Command::SetFunction {
+                function: Function {
+                    id: FunctionId(id),
+                    folder: None,
+                    name: "shape".into(),
+                    kind: FunctionKind::MovementEffect(MovementEffect {
+                        group: G_SPOTS,
+                        shape,
+                        center_pan: 0.0,
+                        center_tilt: 0.0,
+                        width: 40.0,
+                        height: 20.0,
+                        period: TimeValue::Beats(4.0),
+                        phase_spread: 90.0,
+                        direction: Direction::Forward,
+                        rotation: 0.0,
+                        mirror: MovementMirror::None,
+                        run_mode: klight_model::function::RunMode::Loop,
+                        relative: false,
+                        fade_in: TimeValue::ZERO,
+                        fade_out: TimeValue::ZERO,
+                    }),
+                },
+            },
+        );
+    }
+    // A wide chase out from the center of the grid.
+    ok(
+        &mut e,
+        0,
+        Command::SetFunction {
+            function: Function {
+                id: FunctionId(15),
+                folder: None,
+                name: "rings".into(),
+                kind: FunctionKind::MatrixEffect(MatrixEffect {
+                    group: G_PIXELS,
+                    algorithm: MatrixAlgorithm::Chase {
+                        color: Color::RED,
+                        background: Color::BLACK,
+                        width: 3,
+                    },
+                    period: TimeValue::Ms(2000),
+                    direction: Direction::Forward,
+                    axis: MatrixAxis::Radial,
+                    controls: MatrixControls::Color,
+                    run_mode: klight_model::function::RunMode::Loop,
+                    fade_in: TimeValue::ZERO,
+                    fade_out: TimeValue::ZERO,
+                }),
+            },
+        },
+    );
+    for id in [1, 2, 3, 6, 7, 8, 11, 12, 13, 14, 15] {
         ok(&mut e, 0, Command::StartFunction { id: FunctionId(id) });
     }
     ok(
