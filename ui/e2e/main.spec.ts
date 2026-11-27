@@ -262,10 +262,10 @@ test('scene editor, movement preview, knob and DMX channel desk', async ({ page 
 
   // Movement effect: the drawing follows the values.
   await page.getByRole('button', { name: 'New movement', exact: true }).click();
-  const shape = page.locator('svg[aria-label="Movement preview"] path');
+  const shape = page.locator('svg[aria-label="Movement preview"] path.shape');
   await expect(shape).toBeVisible();
   const circle = await shape.getAttribute('d');
-  await page.getByRole('button', { name: 'eight' }).click();
+  await page.getByRole('button', { name: 'eight', exact: true }).click();
   await expect.poll(() => shape.getAttribute('d')).not.toBe(circle);
   const before = await shape.getAttribute('d');
   await page.locator('label.slider', { hasText: 'Width' }).locator('input[type=number]').fill('200');
@@ -1161,11 +1161,14 @@ test('a scene can be duplicated, and the copy changes on its own', async ({ page
   await sceneMenu(page, 'Duplicate');
   await expect(name).toHaveValue('Original copy 2');
 
-  // Scenes and chasers offer it, in their menu; not effects.
+  // Scenes, chasers and movements offer it, in their menu; not matrix effects.
   await page.getByRole('treeitem', { name: /^Chaser \d+/ }).first().click();
   await sceneMenu(page, 'Duplicate');
   await expect(page.locator('.editor input').first()).toHaveValue(/^Chaser \d+ copy$/);
   await page.getByRole('treeitem', { name: /^Movement \d+/ }).first().click();
+  await sceneMenu(page, 'Duplicate');
+  await expect(page.locator('.editor input').first()).toHaveValue(/^Movement \d+ copy$/);
+  await page.getByRole('treeitem', { name: /^Matrix \d+/ }).first().click();
   await expect(page.getByRole('button', { name: 'Delete', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'More actions' })).toHaveCount(0);
 });
@@ -1462,4 +1465,103 @@ test('a chaser shows its timeline, takes times per step and jumps to a step', as
   // Delete is in the menu.
   await sceneMenu(page, 'Delete chaser');
   await expect(page.getByRole('treeitem', { name: /Tester/ })).toHaveCount(0);
+});
+
+test('a movement is drawn on its preview, shows where the lights reach and which head is which', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByText('Engine: connected')).toBeVisible();
+  await page.getByRole('button', { name: 'Stop all' }).click();
+  await page.getByRole('button', { name: 'FX', exact: true }).click();
+  await page.getByRole('button', { name: 'New movement', exact: true }).click();
+  const name = page.getByLabel('Movement name');
+  await expect(name).toHaveValue(/^Movement \d+$/);
+  const field = (label: string) => page.locator('label.slider', { hasText: label }).locator('input[type=number]');
+
+  // The moving heads of the group, numbered in group order, and their reach.
+  await page.getByLabel('Movement group').selectOption({ label: 'Beams' });
+  const heads = page.getByRole('list', { name: 'Heads in order' }).locator('li');
+  await expect(heads).toHaveText(['1 Spot 540 1', '2 Spot 540 2']);
+  await expect(page.getByText('The lights reach pan ±270°, tilt ±135°')).toBeVisible();
+  await expect(page.locator('[data-reach]')).toHaveCount(1);
+
+  // Dragging the center moves the shape; the engine gets it on release.
+  const center = page.getByRole('button', { name: /^Center:/ });
+  const box = (await center.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 80, box.y + box.height / 2, { steps: 5 });
+  await page.mouse.up();
+  await expect.poll(async () => Number(await field('Center pan').inputValue())).toBeGreaterThan(0);
+  // The arrow keys move it too, one degree at a time.
+  const panned = Number(await field('Center pan').inputValue());
+  await center.focus();
+  await center.press('ArrowRight');
+  await expect(field('Center pan')).toHaveValue(String(panned + 1));
+  // So do the edges, for the size.
+  const width = Number(await field('Width').inputValue());
+  await page.getByRole('button', { name: /^Width:/ }).press('Shift+ArrowRight');
+  await expect(field('Width')).toHaveValue(String(width + 20));
+
+  // Beyond what the spots reach, the shape is flattened: said, not hidden.
+  await field('Center tilt').fill('120');
+  await field('Center tilt').press('Enter');
+  await field('Height').fill('60');
+  await field('Height').press('Enter');
+  await expect(page.getByRole('status')).toContainText('beyond what the lights reach');
+  await field('Center tilt').fill('0');
+  await field('Center tilt').press('Enter');
+  await expect(page.getByRole('status')).toHaveCount(0);
+
+  // Phase presets.
+  await page.getByRole('group', { name: 'Phase presets' }).getByRole('button', { name: 'Even' }).click();
+  await expect(field('Phase spread')).toHaveValue('360');
+
+  // Mirrored heads draw a second, dashed outline; a relative shape is placed
+  // by an offset; the run mode and the fades are kept.
+  await page.getByLabel('Mirrored heads').selectOption({ label: 'Every second head' });
+  await expect(page.locator('[data-mirrored]')).toHaveCount(1);
+  await expect(heads).toHaveText(['1 Spot 540 1', /^2 Spot 540 2\s*⇄$/]);
+  await page.getByLabel('Run mode').selectOption({ label: 'Ping-pong' });
+  await page.getByLabel('Fade in', { exact: true }).selectOption({ label: '2 beats' });
+  await page.getByLabel('Relative to the position of the scenes').check();
+  await expect(page.locator('label.slider', { hasText: 'Offset pan' })).toBeVisible();
+  await field('Rotation').fill('45');
+  await field('Rotation').press('Enter');
+
+  // Regression: renaming right after a change dropped it. Both in one task.
+  await page.evaluate(() => {
+    const w = [...document.querySelectorAll<HTMLLabelElement>('label.slider')].find((l) => l.textContent?.includes('Width'));
+    const input = w?.querySelector<HTMLInputElement>('input[type=number]');
+    if (input) {
+      input.value = '200';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    const n = document.querySelector<HTMLInputElement>('input[aria-label="Movement name"]');
+    if (n) {
+      n.value = 'Sweep';
+      n.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  });
+  await expect(page.getByRole('treeitem', { name: /Sweep/ })).toBeVisible();
+  await page.getByRole('treeitem', { name: /^Matrix \d+/ }).first().click();
+  await page.getByRole('treeitem', { name: /Sweep/ }).click();
+  await expect(field('Width')).toHaveValue('200');
+  await expect(field('Phase spread')).toHaveValue('360');
+  await expect(field('Rotation')).toHaveValue('45');
+  await expect(page.getByLabel('Run mode').locator('option:checked')).toHaveText('Ping-pong');
+  await expect(page.getByLabel('Mirrored heads').locator('option:checked')).toHaveText('Every second head');
+  await expect(page.getByLabel('Fade in', { exact: true }).locator('option:checked')).toHaveText('2 beats');
+  await expect(page.getByLabel('Relative to the position of the scenes')).toBeChecked();
+
+  // Started and stopped from its header.
+  const header = page.locator('.editor .head');
+  await header.getByRole('button', { name: 'Start', exact: true }).click();
+  await expect.poll(async () => (await runtime(page)).state.active.length).toBe(1);
+  await header.getByRole('button', { name: 'Stop', exact: true }).click();
+  await expect.poll(async () => (await runtime(page)).state.active.length).toBe(0);
+
+  // A group without pan or tilt is said so.
+  await page.getByLabel('Movement group').selectOption({ label: 'Front' });
+  await expect(page.getByText('None of the lights in this group can move')).toBeVisible();
 });

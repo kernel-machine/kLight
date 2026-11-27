@@ -54,7 +54,7 @@
       scene: { type: 'scene', members: [], new_members_follow: true, values: [], timing: { delay: { ms: 0 }, fade_in: { ms: 0 }, fade_out: { ms: 0 } }, spread: { type: 'none' }, attribute_timing: [] },
       chaser: { type: 'chaser', steps: [], hold: { beats: 1 }, fade: { ms: 0 }, direction: 'Forward', run_mode: 'Loop' },
       cue_list: { type: 'cue_list', cues: [], move_in_black: true },
-      movement_effect: { type: 'movement_effect', group: firstGroup, shape: { type: 'circle' }, center_pan: 0, center_tilt: 0, width: 60, height: 30, period: { beats: 4 }, phase_spread: 0, direction: 'Forward' },
+      movement_effect: { type: 'movement_effect', group: firstGroup, shape: { type: 'circle' }, center_pan: 0, center_tilt: 0, width: 60, height: 30, period: { beats: 4 }, phase_spread: 0, direction: 'Forward', rotation: 0, mirror: 'none', run_mode: 'Loop', relative: false, fade_in: { ms: 0 }, fade_out: { ms: 0 } },
       matrix_effect: { type: 'matrix_effect', group: firstGroup, algorithm: { type: 'chase', color: hexToColor('#ff0000'), background: hexToColor('#000000') }, period: { beats: 2 }, direction: 'Forward' },
       collection: { type: 'collection', functions: [] },
     };
@@ -139,8 +139,8 @@
       <span class="muted">Select a function to edit it.</span>
     {:else}
       {@const f = selected}
-      <!-- Scenes and chasers have their own header in their editor (test, menu). -->
-      {#if f.kind.type !== 'scene' && f.kind.type !== 'chaser'}
+      <!-- Scenes, chasers and movements have their own header in their editor (test, menu). -->
+      {#if f.kind.type !== 'scene' && f.kind.type !== 'chaser' && f.kind.type !== 'movement_effect'}
       <div class="row">
         <input value={f.name} onchange={(e) => save({ ...f, name: e.currentTarget.value })} />
         <span class="badge">{kindLabel(f.kind.type)}</span>
@@ -196,7 +196,11 @@
           updateKind(f, { ...k, cues: [...k.cues, cue] });
         }}>Record cue from programmer</button>
       {:else if f.kind.type === 'movement_effect'}
-        <MovementEditor {f} />
+        <MovementEditor
+          {f}
+          onduplicate={() => duplicate(f)}
+          ondelete={() => { run({ type: 'remove_function', id: f.id }); selectedId = null; }}
+        />
       {:else if f.kind.type === 'matrix_effect'}
         <MatrixEditor {f} />
       {/if}
