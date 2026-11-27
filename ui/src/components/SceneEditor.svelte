@@ -23,7 +23,6 @@
     scene,
     running = false,
     onrun,
-    onrename,
     onduplicate,
     ondelete,
   }: {
@@ -33,7 +32,6 @@
     running?: boolean;
     /** Starts (true) or stops the scene. */
     onrun: (start: boolean) => void;
-    onrename: (name: string) => void;
     onduplicate: () => void;
     ondelete: () => void;
   } = $props();
@@ -188,6 +186,18 @@
       if (!latest || !current || current.kind.type !== 'scene') return;
       const next = change(current.kind, latest);
       return run({ type: 'set_function', function: { ...current, kind: { ...next, type: 'scene' } } });
+    });
+  }
+  /**
+   * Renamed in the same queue as the other edits, on the latest scene: a copy
+   * taken before values just set came back would drop them.
+   */
+  function rename(name: string) {
+    const id = f.id;
+    enqueue(() => {
+      const current = app.s.show?.functions.find((x) => x.id === id);
+      if (!current || current.name === name) return;
+      return run({ type: 'set_function', function: { ...current, name } });
     });
   }
   const updateValues = (change: (values: SceneValue[]) => SceneValue[]) =>
@@ -468,7 +478,7 @@
 <!-- Header: name; testing the scene (its own fades, or live on the lights);
      the rarely used actions in a menu. -->
 <div class="head">
-  <input class="name" value={f.name} aria-label="Scene name" onchange={(e) => onrename(e.currentTarget.value)} />
+  <input class="name" value={f.name} aria-label="Scene name" onchange={(e) => rename(e.currentTarget.value)} />
   <span class="badge">Scene</span>
   <span class="spacer"></span>
   <div class="test" role="group" aria-label="Test">
