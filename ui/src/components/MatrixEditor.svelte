@@ -3,6 +3,7 @@
   import { app, run } from '../lib/app.svelte';
   import { groupLayout } from '../lib/core';
   import { colorToHex, hexToColor } from '../lib/show';
+  import { draftSync } from '../lib/draftSync';
   import TimeSelect from './TimeSelect.svelte';
   import type { Color, Function as Fn, MatrixAlgorithm, MatrixEffect } from '../lib/protocol';
   import MatrixPreview from './MatrixPreview.svelte';
@@ -11,23 +12,20 @@
   const show = $derived(app.s.show!);
   const source = $derived(f.kind.type === 'matrix_effect' ? f.kind : null);
   let draft = $state<MatrixEffect | null>(null);
-  /** JSON of the last state known to match the engine. */
-  let synced = '';
-  let syncedId = -1;
-  // Follow the engine's version, but never overwrite local edits that have
-  // not been sent yet (a late confirmation of an earlier change must not
-  // reset what the operator is typing).
+  // Follow the engine's version without undoing edits still on their way.
+  const sync = draftSync<MatrixEffect>();
+  const strip = (kind: Fn['kind']): MatrixEffect | null => {
+    if (kind.type !== 'matrix_effect') return null;
+    const { type: _type, ...rest } = kind;
+    return $state.snapshot(rest) as MatrixEffect;
+  };
   $effect(() => {
-    const src = source;
+    const incoming = source ? strip(source) : null;
     const id = f.id;
-    if (!src) return;
-    const { type: _type, ...rest } = src;
-    const incoming = $state.snapshot(rest) as MatrixEffect;
+    if (!incoming) return;
     untrack(() => {
-      const local = draft ? JSON.stringify($state.snapshot(draft)) : null;
-      if (id !== syncedId || local === null || local === synced) draft = incoming;
-      synced = JSON.stringify(incoming);
-      syncedId = id;
+      const shown = sync.incoming(id, incoming, draft ? ($state.snapshot(draft) as MatrixEffect) : null);
+      if (shown) draft = shown;
     });
   });
   const group = $derived(show.groups.find((g) => g.id === draft?.group));
@@ -38,8 +36,23 @@
 
   function commit() {
     if (!draft) return;
-    synced = JSON.stringify($state.snapshot(draft));
-    run({ type: 'set_function', function: { ...f, kind: { type: 'matrix_effect', ...draft } } });
+    const kind = $state.snapshot(draft) as MatrixEffect;
+    const id = f.id;
+    sync.sent(kind);
+    run({ type: 'set_function', function: { ...f, kind: { type: 'matrix_effect', ...kind } } }).then((ok) => {
+      const now = app.s.show?.functions.find((x) => x.id === id);
+      const engine = now ? strip(now.kind) : null;
+      if (!engine || f.id !== id) return;
+      const local = draft ? ($state.snapshot(draft) as MatrixEffect) : null;
+      if (ok) {
+        const shown = sync.settled(kind, engine, local);
+        if (shown) draft = shown;
+        return;
+      }
+      // Refused: back to what the engine has.
+      sync.refused();
+      draft = sync.incoming(id, engine, null);
+    });
   }
 
   const red = hexToColor('#ff0000');
