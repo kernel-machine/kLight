@@ -19,6 +19,7 @@ import type {
   WidgetKind,
   InputMapping,
   InputTarget,
+  SceneValue,
 } from './protocol';
 
 export const UNIVERSE_SIZE = 512;
@@ -99,6 +100,19 @@ export function parseTime(text: string): TimeValue | null {
   return null;
 }
 
+/** A cue time as written in the cue list: seconds, or beats. */
+export function formatSeconds(t: TimeValue): string {
+  if (!('ms' in t)) return formatBeats(t.beats);
+  return `${Number((t.ms / 1000).toFixed(3))} s`;
+}
+
+/** A cue time typed in the cue list: a bare number is in seconds; "ms", "s" and "beats" as in {@link parseTime}. */
+export function parseSeconds(text: string): TimeValue | null {
+  const bare = /^(\d+(?:\.\d+)?)$/.exec(text.trim());
+  if (bare) return { ms: Math.round(Number(bare[1]) * 1000) };
+  return parseTime(text);
+}
+
 export function describeValue(v: AttributeValue): string {
   switch (v.type) {
     case 'intensity':
@@ -124,6 +138,19 @@ export function describeValue(v: AttributeValue): string {
 }
 
 /** Color a function shows (first color its scene sets), from the core; null if none. */
+/** A scene or cue value in words: the intention, the palette or the DMX value. */
+export function describeSceneValue(show: Show, sv: SceneValue): string {
+  const v = sv.value;
+  switch (v.type) {
+    case 'explicit':
+      return describeValue(v.value);
+    case 'palette':
+      return `Palette "${show.palettes.find((p) => p.id === v.id)?.name ?? '?'}"`;
+    case 'channel':
+      return `Channel ${v.value}`;
+  }
+}
+
 export function functionColor(show: Show, f: Function_ | undefined): Color | null {
   return f ? coreFunctionColor(show, f.id) : null;
 }

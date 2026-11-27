@@ -1161,7 +1161,7 @@ test('a scene can be duplicated, and the copy changes on its own', async ({ page
   await sceneMenu(page, 'Duplicate');
   await expect(name).toHaveValue('Original copy 2');
 
-  // Scenes, chasers and movements offer it, in their menu; not matrix effects.
+  // Every editor offers it in its menu, but collections.
   await page.getByRole('treeitem', { name: /^Chaser \d+/ }).first().click();
   await sceneMenu(page, 'Duplicate');
   await expect(page.locator('.editor input').first()).toHaveValue(/^Chaser \d+ copy$/);
@@ -1169,6 +1169,10 @@ test('a scene can be duplicated, and the copy changes on its own', async ({ page
   await sceneMenu(page, 'Duplicate');
   await expect(page.locator('.editor input').first()).toHaveValue(/^Movement \d+ copy$/);
   await page.getByRole('treeitem', { name: /^Matrix \d+/ }).first().click();
+  await sceneMenu(page, 'Duplicate');
+  await expect(page.locator('.editor input').first()).toHaveValue(/^Matrix \d+ copy$/);
+  // Collections keep the plain header.
+  await page.getByRole('treeitem', { name: /Both looks/ }).click();
   await expect(page.getByRole('button', { name: 'Delete', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'More actions' })).toHaveCount(0);
 });
@@ -1564,4 +1568,168 @@ test('a movement is drawn on its preview, shows where the lights reach and which
   // A group without pan or tilt is said so.
   await page.getByLabel('Movement group').selectOption({ label: 'Front' });
   await expect(page.getByText('None of the lights in this group can move')).toBeVisible();
+});
+
+test('a cue list is recorded from the programmer, edited in place and run from its header', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByText('Engine: connected')).toBeVisible();
+  await page.getByRole('button', { name: 'Stop all' }).click();
+  const programmerSize = async () => (await runtime(page)).state.programmer.length as number;
+  const clearProgrammer = async () => {
+    await page.getByRole('button', { name: 'Simple Desk' }).click();
+    await page.getByRole('button', { name: 'Selection & intentions' }).click();
+    await page.getByRole('button', { name: 'Clear', exact: true }).click();
+    await expect.poll(programmerSize).toBe(0);
+  };
+  const full = async (fixture: string) => {
+    await page.getByRole('button', { name: 'Simple Desk' }).click();
+    await page.getByRole('button', { name: fixture, exact: true }).click();
+    await page.getByRole('button', { name: 'Full' }).click();
+    await expect.poll(programmerSize).toBeGreaterThan(0);
+  };
+  await clearProgrammer();
+
+  await page.getByRole('button', { name: 'FX', exact: true }).click();
+  await page.getByRole('button', { name: 'New cue list', exact: true }).click();
+  const name = page.getByLabel('Cue list name');
+  await expect(name).toHaveValue(/^Cue list \d+$/);
+  const listName = await name.inputValue();
+  const open = async () => {
+    await page.getByRole('button', { name: 'FX', exact: true }).click();
+    await page.getByRole('treeitem', { name: new RegExp(`^${listName}`) }).click();
+  };
+  await expect(page.getByText('Set the lights in the Simple Desk, then')).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Record cue/ })).toBeDisabled();
+
+  // Two cues, recorded one after the other.
+  await full('Dimmer 1');
+  await open();
+  await page.getByRole('button', { name: /^Record cue/ }).click();
+  const cues = page.getByRole('list').filter({ has: page.getByLabel('Go to cue 1') }).locator(':scope > li');
+  await expect(cues).toHaveCount(1);
+  await clearProgrammer();
+  await full('Dimmer 2');
+  await open();
+  await page.getByRole('button', { name: /^Record cue/ }).click();
+  await expect(cues).toHaveCount(2);
+  const numbers = () => cues.getByLabel('Number').evaluateAll((els) => els.map((e) => (e as HTMLInputElement).value));
+  await expect.poll(numbers).toEqual(['1', '2']);
+
+  // GO from the header: the current and the next cue are shown.
+  const transport = page.getByRole('group', { name: 'Transport' });
+  await transport.getByRole('button', { name: 'GO' }).click();
+  await expect(page.locator('[data-current]')).toHaveText('Cue 1 Cue 1');
+  await expect(page.locator('[data-next]')).toHaveText('Cue 2 Cue 2');
+  await expect.poll(async () => (await runtime(page)).state.active.find((a: { position: number | null }) => a.position !== null)?.position).toBe(0);
+
+  // Recorded while cue 1 plays: it goes after it, numbered in between.
+  await page.getByRole('button', { name: /^Record cue/ }).click();
+  await expect.poll(numbers).toEqual(['1', '1.1', '2']);
+  await expect(cues.nth(1).getByLabel('Name')).toHaveValue('Cue 1.1');
+
+  // Times are typed in seconds, or beats; follow and move in black per cue.
+  const second = cues.nth(2);
+  await second.getByLabel('Fade in', { exact: true }).fill('0.5');
+  await second.getByLabel('Fade in', { exact: true }).press('Enter');
+  await expect(second.getByLabel('Fade in', { exact: true })).toHaveValue('0.5 s');
+  await second.getByLabel('Delay').fill('2 beats');
+  await second.getByLabel('Delay').press('Enter');
+  await expect(second.getByLabel('Delay')).toHaveValue('2 beats');
+  await second.getByLabel('Follow').selectOption('auto');
+  await expect(second.getByLabel('Go on after')).toHaveValue('5 s');
+  await second.getByLabel('Move in black').selectOption({ label: 'Off' });
+  // Two quick edits of two cues are both kept.
+  await cues.nth(0).getByLabel('Name').fill('Intro');
+  await cues.nth(0).getByLabel('Name').press('Enter');
+  await second.getByLabel('Name').fill('Outro');
+  await second.getByLabel('Name').press('Enter');
+  await open();
+  await expect(cues.nth(0).getByLabel('Name')).toHaveValue('Intro');
+  await expect(second.getByLabel('Name')).toHaveValue('Outro');
+  await expect(second.getByLabel('Fade in', { exact: true })).toHaveValue('0.5 s');
+  await expect(second.getByLabel('Move in black').locator('option:checked')).toHaveText('Off');
+
+  // Values on demand; updated from the programmer (Dimmer 2 joins cue 1).
+  await cues.nth(0).getByRole('button', { name: /^1 value/ }).click();
+  await expect(page.getByRole('list', { name: 'Values of cue 1' })).toContainText('Intensity 100%');
+  await page.getByRole('button', { name: 'Update cue 1 from the programmer' }).click();
+  await expect(cues.nth(0).getByRole('button', { name: /^2 values/ })).toBeVisible();
+
+  // Moved down, it is numbered between its new neighbours.
+  await page.getByRole('button', { name: 'Move cue 1.1 down' }).click();
+  await expect.poll(numbers).toEqual(['1', '2', '3']);
+  await expect(cues.nth(2).getByLabel('Name')).toHaveValue('Cue 1.1');
+  // Duplicated, removed, renumbered.
+  await page.getByRole('button', { name: 'Duplicate cue 1', exact: true }).click();
+  await expect.poll(numbers).toEqual(['1', '1.1', '2', '3']);
+  await expect(cues.nth(1).getByLabel('Name')).toHaveValue('Intro copy');
+  await page.getByRole('button', { name: 'Remove cue 3', exact: true }).click();
+  await expect.poll(numbers).toEqual(['1', '1.1', '2']);
+  await page.getByRole('button', { name: 'More actions' }).click();
+  await page.getByRole('menuitem', { name: /^Renumber/ }).click();
+  await expect.poll(numbers).toEqual(['1', '2', '3']);
+
+  // Go to a cue, then Stop.
+  await page.getByRole('button', { name: 'Go to cue 3' }).click();
+  await expect(page.locator('[data-current]')).toHaveText('Cue 3 Outro');
+  await expect(page.locator('[data-next]')).toHaveCount(0);
+  await expect(transport.getByRole('button', { name: 'GO' })).toBeDisabled();
+  await transport.getByRole('button', { name: 'Stop' }).click();
+  await expect.poll(async () => (await runtime(page)).state.active.length).toBe(0);
+  await clearProgrammer();
+});
+
+test('a matrix is edited with its own header and its new algorithms and modes', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByText('Engine: connected')).toBeVisible();
+  await page.getByRole('button', { name: 'Stop all' }).click();
+  await page.getByRole('button', { name: 'FX', exact: true }).click();
+  await page.getByRole('button', { name: 'New matrix effect', exact: true }).click();
+  const name = page.getByLabel('Matrix name');
+  await expect(name).toHaveValue(/^Matrix \d+$/);
+  // Heads numbered in group order.
+  await expect(page.locator('.matrix .cell').first()).toHaveText('1');
+
+  const algorithm = page.getByRole('group', { name: 'Algorithm' });
+  await algorithm.getByRole('button', { name: 'Twinkle' }).click();
+  await expect(page.getByLabel('Density')).toHaveValue('0.3');
+  await expect(page.getByLabel('Background')).toBeVisible();
+  // No axis for twinkle; there is one for fill.
+  await expect(page.getByLabel('Axis')).toHaveCount(0);
+  await algorithm.getByRole('button', { name: 'Fill' }).click();
+  await page.getByLabel('Axis').selectOption({ label: 'Across the rows' });
+  await page.getByLabel('Run mode').selectOption({ label: 'Ping-pong' });
+  await page.getByLabel('Fade out', { exact: true }).selectOption({ label: '1 beat' });
+
+  // Regression: renaming right after a change dropped it. Both in one task.
+  await page.evaluate(() => {
+    const mode = document.querySelector<HTMLSelectElement>('select[aria-label="Run mode"]');
+    if (mode) {
+      mode.value = 'SingleShot';
+      mode.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    const n = document.querySelector<HTMLInputElement>('input[aria-label="Matrix name"]');
+    if (n) {
+      n.value = 'Wipe';
+      n.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  });
+  await expect(page.getByRole('treeitem', { name: /Wipe/ })).toBeVisible();
+  await page.getByRole('treeitem', { name: /^Movement \d+/ }).first().click();
+  await page.getByRole('treeitem', { name: /Wipe/ }).click();
+  await expect(page.getByLabel('Run mode').locator('option:checked')).toHaveText('Single shot');
+  await expect(page.getByLabel('Axis').locator('option:checked')).toHaveText('Across the rows');
+  await expect(page.getByLabel('Fade out', { exact: true }).locator('option:checked')).toHaveText('1 beat');
+
+  // Started and stopped from its header (looping, so that it lasts).
+  await page.getByLabel('Run mode').selectOption({ label: 'Loop' });
+  const header = page.locator('.editor .head');
+  await header.getByRole('button', { name: 'Start', exact: true }).click();
+  await expect.poll(async () => (await runtime(page)).state.active.length).toBe(1);
+  await header.getByRole('button', { name: 'Stop', exact: true }).click();
+  await expect.poll(async () => (await runtime(page)).state.active.length).toBe(0);
+  // Its menu: duplicate.
+  await page.getByRole('button', { name: 'More actions' }).click();
+  await page.getByRole('menuitem', { name: 'Duplicate' }).click();
+  await expect(name).toHaveValue('Wipe copy');
 });

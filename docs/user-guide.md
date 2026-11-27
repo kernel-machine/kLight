@@ -48,6 +48,23 @@ From a tablet or phone open `http://<pc-address>:9400/?token=<token>`.
   its center when it starts, *Fade out* shrinks it back when it is stopped.
   *Relative to the position of the scenes* adds the shape to where the scenes
   put each head: the center becomes an offset from there.
+  The cue list editor runs the show from its header: GO, Back, Pause and
+  Stop; above the cues it shows the cue playing, how far its fade is, and the
+  next one (with the time left when it follows by itself). Set the lights in
+  the Simple Desk, then *Record cue*: the new cue goes after the one playing
+  (or at the end), numbered between its neighbours (1.1 between 1 and 2).
+  Every cue's number, name, fade in, fade out and delay are edited in its row
+  (a bare number is in seconds; "2 beats" follows the tempo), as are *Follow*
+  (wait for GO, or go on after a time) and *Move in black* (as the list, on or
+  off). Its values are shown on demand; *Update* adds the programmer to a cue
+  (the same values are replaced). ⧉ duplicates a cue, ↑/↓ move it, ▶ jumps to
+  it; *Renumber* in the ⋯ menu numbers them 1, 2, 3 again.
+  The matrix editor has Start/Stop and the ⋯ menu too. Its heads are numbered
+  in group order on the grid. Besides solid, chase, wave, gradient and text,
+  *Fill* fills the grid one line at a time and *Twinkle* lights a share of the
+  cells at random. Chase, wave, gradient and fill move across the columns or
+  across the rows; *Mode* is loop, single shot or ping-pong, and *Fade in* /
+  *Fade out* bring the level up when it starts and down when it is stopped.
 - **Virtual Console**: in Design mode add and move widgets; in Show mode the
   widgets are live and the structure is locked.
 - **Simple Desk**: tap a group or some fixtures, then an intention (intensity,

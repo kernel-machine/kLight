@@ -14,7 +14,7 @@
   import SceneTiming from './SceneTiming.svelte';
   import XYPad from './XYPad.svelte';
   import { editQueue } from '../lib/queue';
-  import { capabilityNames, colorToHex, describeTarget, describeValue, hexToColor } from '../lib/show';
+  import { capabilityNames, colorToHex, describeSceneValue, describeTarget, hexToColor } from '../lib/show';
   import { addSceneMembers, addSceneValues, colorChoices, coveredValues, removeCoveredValues, removeSceneMember, sceneLightLooks, sceneLights, sceneValueColor, setSceneChannel, valueSupport } from '../lib/core';
   import type { AttributeValue, ChannelRef, CoveredValue, FanMode, Function as Fn, Scene, SceneValue, Show, Target, ValueSource } from '../lib/protocol';
 
@@ -460,17 +460,7 @@
     return c ? colorToHex(c) : null;
   }
 
-  function describe(sv: SceneValue): string {
-    const v = sv.value;
-    switch (v.type) {
-      case 'explicit':
-        return describeValue(v.value);
-      case 'palette':
-        return `Palette "${show.palettes.find((p) => p.id === v.id)?.name ?? '?'}"`;
-      case 'channel':
-        return `Channel ${v.value}`;
-    }
-  }
+  const describe = (sv: SceneValue) => describeSceneValue(show, sv);
 </script>
 
 <svelte:window onclick={outside} />

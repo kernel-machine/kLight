@@ -10,7 +10,8 @@
   $effect(() => {
     let raf = 0;
     const loop = (now: number) => {
-      turns = periodMs > 0 ? (now % periodMs) / periodMs : 0;
+      // Cycles counted from absolute time (ping-pong needs the count).
+      turns = periodMs > 0 ? now / periodMs : 0;
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
@@ -28,12 +29,12 @@
 
 <div class="matrix" style="--w:{layout.width}; --h:{layout.height}">
   {#each layout.positions as cell, i (i)}
-    <div class="cell" style="grid-column:{cell.x + 1}; grid-row:{cell.y + 1}; background:{colors[i]}" title={labels[i]}></div>
+    <div class="cell" style="grid-column:{cell.x + 1}; grid-row:{cell.y + 1}; background:{colors[i]}" title="{i + 1}. {labels[i] ?? ''}"><span>{i + 1}</span></div>
   {:else}
-    <span class="muted">The group has no heads.</span>
+    <span class="muted">This group has no lights: add some in Fixtures → Groups.</span>
   {/each}
 </div>
-<p class="muted small">{layout.width} × {layout.height} grid, {layout.positions.length} heads. Grid positions are set in Fixtures → Groups.</p>
+<p class="muted small">{layout.width} × {layout.height} grid, {layout.positions.length} heads, numbered in group order. Their places in the grid are set in Fixtures → Groups.</p>
 
 <style>
   .matrix {
@@ -46,6 +47,7 @@
     border-radius: var(--radius);
     max-width: calc(var(--w) * 56px);
   }
-  .cell { aspect-ratio: 1; border-radius: 50%; box-shadow: 0 0 10px currentColor; border: 1px solid #222; }
+  .cell { aspect-ratio: 1; border-radius: 50%; box-shadow: 0 0 10px currentColor; border: 1px solid #222; display: grid; place-items: center; }
+  .cell span { font-size: 10px; font-weight: 700; color: #fff; mix-blend-mode: difference; opacity: 0.75; }
   .small { font-size: 12px; }
 </style>
