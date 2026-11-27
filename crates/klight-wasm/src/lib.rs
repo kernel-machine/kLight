@@ -9,10 +9,13 @@
 //! numeric series as typed arrays.
 
 use klight_engine_core::compile::CompiledShow;
-use klight_engine_core::effects::{head_phase, matrix_cell_color, matrix_phase, movement_point};
-use klight_engine_core::preview::scene_channels;
+use klight_engine_core::effects::{
+    head_phase, matrix_cell_color, matrix_phase, movement_path_point, movement_point,
+};
+use klight_engine_core::preview::{movement_reach, scene_channels};
 use klight_engine_core::scene_edit;
 use klight_fixtures::color_sequence;
+use klight_model::function::RunMode;
 use klight_model::inspect::{self, SceneFixtureChannels, SceneLights};
 use klight_model::vc::{widget_light, WidgetKind, WidgetLight};
 use klight_model::{
@@ -124,6 +127,11 @@ impl ShowView {
             return None;
         };
         Some(inspect::scene_light_looks(&self.show, scene))
+    }
+
+    pub fn movement_reach_of(&self, effect: &str) -> Result<inspect::MovementReach, String> {
+        let effect: MovementEffect = parse(effect, "movement effect")?;
+        Ok(movement_reach(&self.show, self.compiled(), &effect))
     }
 
     pub fn function_color_of(&self, id: u32) -> Option<Color> {
@@ -266,6 +274,15 @@ impl ShowView {
         self.scene_light_looks_of(id).map(|l| to_json(&l))
     }
 
+    /// JSON `MovementReach`: the heads a movement effect (JSON
+    /// `MovementEffect`, possibly not saved yet) moves, how far they go and
+    /// whether its shape goes beyond.
+    pub fn movement_reach(&self, effect: &str) -> Result<String, JsError> {
+        self.movement_reach_of(effect)
+            .map(|r| to_json(&r))
+            .map_err(|e| JsError::new(&e))
+    }
+
     /// Linear RGB `[r, g, b]` of the color a function shows (first color its
     /// scene sets), or undefined.
     pub fn function_color(&self, id: u32) -> Option<Vec<f32>> {
@@ -329,26 +346,35 @@ impl MovementView {
         })
     }
 
-    /// `samples + 1` points of the whole shape: [pan0, tilt0, pan1, tilt1, ...].
-    pub fn path_points(&self, samples: u32) -> Vec<f32> {
+    /// `samples + 1` points of the whole shape, mirrored left to right or
+    /// not: [pan0, tilt0, pan1, tilt1, ...].
+    pub fn path_points(&self, samples: u32, mirrored: bool) -> Vec<f32> {
         let n = samples.max(1);
         (0..=n)
             .flat_map(|k| {
-                let (p, t) = movement_point(&self.effect, f64::from(k) / f64::from(n), 0.0);
+                let (p, t) = movement_path_point(&self.effect, k as f32 / n as f32, mirrored);
                 [p, t]
             })
             .collect()
     }
 
-    /// Position of each of `heads` heads at cycle position `turns`.
+    /// Position of each of `heads` heads (the group's members, in order) at
+    /// cycle position `turns`, counted from the start. The preview repeats a
+    /// single shot: there `turns` wraps at 1.
     pub fn head_points(&self, turns: f64, heads: u32) -> Vec<f32> {
+        let e = &self.effect;
         let n = heads.max(1) as usize;
+        let turns = match e.run_mode {
+            RunMode::SingleShot => turns.rem_euclid(1.0),
+            RunMode::Loop | RunMode::PingPong => turns,
+        };
         (0..n)
             .flat_map(|i| {
                 let (p, t) = movement_point(
-                    &self.effect,
+                    e,
                     turns,
-                    head_phase(self.effect.phase_spread, i, n),
+                    head_phase(e.phase_spread, i, n),
+                    e.mirror.mirrors(i, n),
                 );
                 [p, t]
             })
@@ -363,8 +389,8 @@ impl MovementView {
         Self::from_json(effect_json).map_err(|e| JsError::new(&e))
     }
 
-    pub fn path(&self, samples: u32) -> Vec<f32> {
-        self.path_points(samples)
+    pub fn path(&self, samples: u32, mirrored: bool) -> Vec<f32> {
+        self.path_points(samples, mirrored)
     }
 
     pub fn heads(&self, turns: f64, heads: u32) -> Vec<f32> {
@@ -595,7 +621,22 @@ mod tests {
         let heads = v.head_points(0.0, 2);
         assert_eq!(&heads[..2], &[40.0, -5.0]);
         assert!((heads[2] - 10.0).abs() < 1e-4 && (heads[3] - 5.0).abs() < 1e-4);
-        assert_eq!(v.path_points(4).len(), 10);
+        assert_eq!(v.path_points(4, false).len(), 10);
+    }
+
+    #[test]
+    fn movement_mirrors_heads_and_repeats_a_single_shot() {
+        let v = MovementView::from_json(
+            r#"{"group":1,"shape":{"type":"circle"},"center_pan":10,"center_tilt":0,"width":60,"height":20,"period":{"ms":1000},"mirror":"alternate","run_mode":"SingleShot"}"#,
+        )
+        .unwrap();
+        // Same phase: the second head is on the other side of the center.
+        let heads = v.head_points(0.0, 2);
+        assert_eq!(&heads[..], &[40.0, 0.0, -20.0, 0.0]);
+        // A single shot is repeated in the preview.
+        assert_eq!(v.head_points(1.25, 1), v.head_points(0.25, 1));
+        let mirrored = v.path_points(4, true);
+        assert_eq!(&mirrored[..2], &[-20.0, 0.0]);
     }
 
     #[test]
@@ -627,6 +668,15 @@ mod tests {
     fn chaser_times_only_for_chasers() {
         let show = ShowView::from_json(&serde_json::to_string(&Show::new("t")).unwrap()).unwrap();
         assert!(show.chaser_times_of(1, 120.0).is_none());
+    }
+
+    #[test]
+    fn movement_reach_rejects_a_bad_effect_and_needs_no_group() {
+        let show = ShowView::from_json(&serde_json::to_string(&Show::new("t")).unwrap()).unwrap();
+        assert!(show.movement_reach_of("{").is_err());
+        let effect = r#"{"group":1,"shape":{"type":"circle"},"center_pan":0,"center_tilt":0,"width":60,"height":30,"period":{"beats":4}}"#;
+        let r = show.movement_reach_of(effect).unwrap();
+        assert!(r.heads.is_empty() && r.pan_limit.is_none() && !r.clipped);
     }
 
     #[test]

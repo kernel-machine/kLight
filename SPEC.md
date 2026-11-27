@@ -267,7 +267,23 @@ consoles (grandMA, MagicQ), with a simple interface.
   needed: the step fades in with its own fade and lasts its full hold from then.
 - `CueList` — cues with times, Go/Back/Pause, current cue.
 - `MovementEffect` (EFX) — pan/tilt generators: circle, eight, line, square,
-  lissajous; size, speed, phase distributed over the group.
+  lissajous; size, speed, phase distributed over the group, and:
+  - **rotation** of the shape around its center (degrees, counterclockwise);
+  - **mirrored heads**: none, every second head, or the second half of the
+    group (the middle head of an odd group is not) draw the shape mirrored left
+    to right around its center;
+  - **run mode**: loop, single shot (one cycle, then the effect stops), or
+    ping-pong (forward along the shape, then back);
+  - **relative mode**: the shape is added to the pan and tilt that the scenes
+    below give each head (in its own orientation; the middle of its range where
+    none does), and the center becomes an offset from there;
+  - **fade in / fade out of the size**: from nothing to full when it starts
+    (also as a chaser step or in a collection), and back to its center when the
+    movement itself is stopped (also at the end of a single shot); it is no
+    longer listed as playing while it shrinks.
+  A head beyond its pan or tilt range stops at its limit. The editor shows
+  where the lights of the group reach and warns when the shape goes beyond
+  (for a relative effect, as if the scenes left the heads in the middle).
 - `MatrixEffect` — algorithms over a group with a 2D grid: solid color,
   chase, waves, gradients, text (in Rust, in the core).
 - `Collection` — scenes, movement effects and matrix effects played all

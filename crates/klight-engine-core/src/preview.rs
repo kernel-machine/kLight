@@ -3,13 +3,18 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use klight_model::inspect::{scene_lights, ChannelOrigin, SceneChannel, SceneFixtureChannels};
-use klight_model::{Attribute, ChannelRef, FunctionId, FunctionKind, Show};
+use klight_model::inspect::{
+    scene_lights, ChannelOrigin, MovementHead, MovementReach, SceneChannel, SceneFixtureChannels,
+};
+use klight_model::{
+    Attribute, ChannelRef, FunctionId, FunctionKind, MovementEffect, MovementMirror, Show,
+};
 
 use crate::compile::{
     CompiledFixture, CompiledFunction, CompiledShow, SceneEntry, COARSE_BYTE, FINE_BYTE, NO_ADDR,
     NO_CHANNEL,
 };
+use crate::effects::movement_path_point;
 
 /// All the channels of the fixtures of a scene (its lights, and any other its
 /// values drive), with their target values,
@@ -146,4 +151,75 @@ fn fixture_channels(
         dmx.sort_by_key(|c| c.address);
     }
     out
+}
+
+/// Samples of a cycle used to find how far a shape goes.
+const REACH_SAMPLES: u32 = 720;
+
+/// Where the heads of movement effect `m` can go, and whether its shape goes
+/// beyond: what the editor draws around the shape. The heads and their ranges
+/// are those the engine plays ([`CompiledShow::movement_members`]); a head
+/// beyond its range stops at its limit, as [`degrees_to_dmx16`] clamps.
+///
+/// [`degrees_to_dmx16`]: klight_fixtures::convert::degrees_to_dmx16
+pub fn movement_reach(show: &Show, compiled: &CompiledShow, m: &MovementEffect) -> MovementReach {
+    // How far the shape goes from 0 on each axis, at any phase, mirrored or
+    // not. A relative shape is measured as if the scenes left the heads at
+    // the center of their range.
+    let (mut far_pan, mut far_tilt) = (0.0_f32, 0.0_f32);
+    for mirrored in [false, m.mirror != MovementMirror::None] {
+        for k in 0..=REACH_SAMPLES {
+            let (p, t) = movement_path_point(m, k as f32 / REACH_SAMPLES as f32, mirrored);
+            far_pan = far_pan.max(p.abs());
+            far_tilt = far_tilt.max(t.abs());
+        }
+    }
+    // Rounding of the drawing, not a real overshoot.
+    const SLACK: f32 = 0.01;
+
+    let mut reach = MovementReach {
+        heads: Vec::new(),
+        pan_limit: None,
+        tilt_limit: None,
+        clipped: false,
+    };
+    let narrowest = |limit: &mut Option<f32>, half: f32| {
+        *limit = Some(limit.map_or(half, |l| l.min(half)));
+    };
+    for (fi, head, moving) in compiled.movement_members(show, m) {
+        let Some(cf) = compiled.fixtures.get(fi as usize) else {
+            continue;
+        };
+        let fixture_name = show
+            .fixture(cf.id)
+            .map_or_else(String::new, |f| f.name.clone());
+        let name = if cf.heads.len() > 1 {
+            format!("{fixture_name} · {}", u32::from(head) + 1)
+        } else {
+            fixture_name
+        };
+        reach.heads.push(MovementHead {
+            fixture: cf.id,
+            head,
+            name,
+            moves: moving.is_some(),
+            mirrored: moving.is_some_and(|h| h.mirrored),
+        });
+        let Some(h) = moving else { continue };
+        // The effect's pan goes to the tilt channel when the axes are swapped.
+        let (pan_channel, pan_range, tilt_channel, tilt_range) = if h.orientation.swap_pan_tilt {
+            (h.tilt, h.tilt_range, h.pan, h.pan_range)
+        } else {
+            (h.pan, h.pan_range, h.tilt, h.tilt_range)
+        };
+        if pan_channel != NO_CHANNEL && pan_range > 0.0 {
+            narrowest(&mut reach.pan_limit, pan_range / 2.0);
+            reach.clipped |= far_pan > pan_range / 2.0 + SLACK;
+        }
+        if tilt_channel != NO_CHANNEL && tilt_range > 0.0 {
+            narrowest(&mut reach.tilt_limit, tilt_range / 2.0);
+            reach.clipped |= far_tilt > tilt_range / 2.0 + SLACK;
+        }
+    }
+    reach
 }

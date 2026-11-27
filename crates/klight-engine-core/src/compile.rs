@@ -185,6 +185,8 @@ pub struct MoveHead {
     pub orientation: Orientation,
     /// Phase offset of this head, in turns (0..1).
     pub phase: f32,
+    /// It draws the shape mirrored left to right.
+    pub mirrored: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -926,31 +928,11 @@ fn longest(a: TimeValue, b: TimeValue) -> TimeValue {
 }
 
 fn compile_movement(show: &Show, c: &mut CompiledShow, m: &MovementEffect) -> CompiledMovement {
-    let heads_list = c.expand_target(show, &Target::Group { id: m.group });
-    let n = heads_list.len().max(1);
-    let mut heads = Vec::new();
-    for (fi, head, order, _) in heads_list {
-        let Some(f) = c.fixtures.get(fi as usize) else {
-            continue;
-        };
-        let find = |a| {
-            f.profile.find(head, a).map_or(NO_CHANNEL, |(s, _)| {
-                f.first_channel.saturating_add(u32::from(s))
-            })
-        };
-        let (pan, tilt) = (find(Attribute::Pan), find(Attribute::Tilt));
-        if pan == NO_CHANNEL && tilt == NO_CHANNEL {
-            continue;
-        }
-        heads.push(MoveHead {
-            pan,
-            tilt,
-            pan_range: f.profile.physical.pan_max_deg,
-            tilt_range: f.profile.physical.tilt_max_deg,
-            orientation: f.orientation,
-            phase: crate::effects::head_phase(m.phase_spread, usize::from(order), n),
-        });
-    }
+    let heads: Vec<MoveHead> = c
+        .movement_members(show, m)
+        .into_iter()
+        .filter_map(|(_, _, head)| head)
+        .collect();
     if heads.is_empty() {
         c.warn(format!(
             "movement effect on group {} has no pan/tilt heads",
@@ -960,6 +942,43 @@ fn compile_movement(show: &Show, c: &mut CompiledShow, m: &MovementEffect) -> Co
     CompiledMovement {
         heads,
         effect: m.clone(),
+    }
+}
+
+impl CompiledShow {
+    /// Every member of the group of a movement effect, in group order: its
+    /// fixture index, head and, if it has pan or tilt, how the effect moves
+    /// it. The engine plays the heads; the editor's reach reads the same list.
+    pub fn movement_members(
+        &self,
+        show: &Show,
+        m: &MovementEffect,
+    ) -> Vec<(u32, u16, Option<MoveHead>)> {
+        let members = self.expand_target(show, &Target::Group { id: m.group });
+        let n = members.len().max(1);
+        members
+            .into_iter()
+            .map(|(fi, head, order, _)| {
+                let moving = self.fixtures.get(fi as usize).and_then(|f| {
+                    let find = |a| {
+                        f.profile.find(head, a).map_or(NO_CHANNEL, |(s, _)| {
+                            f.first_channel.saturating_add(u32::from(s))
+                        })
+                    };
+                    let (pan, tilt) = (find(Attribute::Pan), find(Attribute::Tilt));
+                    (pan != NO_CHANNEL || tilt != NO_CHANNEL).then(|| MoveHead {
+                        pan,
+                        tilt,
+                        pan_range: f.profile.physical.pan_max_deg,
+                        tilt_range: f.profile.physical.tilt_max_deg,
+                        orientation: f.orientation,
+                        phase: crate::effects::head_phase(m.phase_spread, usize::from(order), n),
+                        mirrored: m.mirror.mirrors(usize::from(order), n),
+                    })
+                });
+                (fi, head, moving)
+            })
+            .collect()
     }
 }
 

@@ -70,6 +70,12 @@ fn add_effects(e: &mut Engine) {
         period: TimeValue::Ms(1000),
         phase_spread: 0.0,
         direction: Direction::Forward,
+        rotation: 0.0,
+        mirror: MovementMirror::None,
+        run_mode: klight_model::function::RunMode::Loop,
+        relative: false,
+        fade_in: TimeValue::ZERO,
+        fade_out: TimeValue::ZERO,
     });
     let matrix = FunctionKind::MatrixEffect(MatrixEffect {
         group: G_PIXELS,

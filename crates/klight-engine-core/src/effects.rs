@@ -3,8 +3,8 @@
 
 use std::f32::consts::TAU;
 
-use klight_fixtures::convert::{degrees_to_dmx16, unit_to16};
-use klight_model::function::{Direction, MovementShape};
+use klight_fixtures::convert::{degrees_to_dmx16, dmx16_to_degrees, unit_to16};
+use klight_model::function::{Direction, MovementShape, RunMode};
 use klight_model::{Color, MatrixAlgorithm, MovementEffect, TimeValue};
 
 use crate::compile::{CompiledMatrix, CompiledMovement, LogicalChannel, NO_CHANNEL};
@@ -75,30 +75,93 @@ pub fn head_phase(phase_spread: f32, order: usize, n: usize) -> f32 {
     (phase_spread / 360.0) * order as f32 / n as f32
 }
 
-/// Pan/tilt in degrees (before the fixture orientation) of a head with
-/// phase offset `phase` at cycle position `turns`. Shared with the UI preview.
-pub fn movement_point(e: &MovementEffect, turns: f64, phase: f32) -> (f32, f32) {
+/// Where along the shape (turns, 0..1) a head with phase offset `phase` is
+/// at cycle position `turns`, following the direction and the run mode: a
+/// single shot stops at the end of its cycle, ping-pong goes back along the
+/// shape every other cycle.
+pub fn movement_t(e: &MovementEffect, turns: f64, phase: f32) -> f32 {
     let sign = if e.direction == Direction::Backward {
         -1.0
     } else {
         1.0
     };
-    let t = ((turns * sign) as f32 + phase).rem_euclid(1.0);
-    let (x, y) = shape_point(e.shape, t);
-    (
-        e.center_pan + x * e.width / 2.0,
-        e.center_tilt + y * e.height / 2.0,
-    )
+    match e.run_mode {
+        RunMode::Loop => ((turns * sign) as f32 + phase).rem_euclid(1.0),
+        RunMode::SingleShot => ((turns.clamp(0.0, 1.0) * sign) as f32 + phase).rem_euclid(1.0),
+        RunMode::PingPong => {
+            let u = (turns * sign + f64::from(phase)).rem_euclid(2.0);
+            (if u > 1.0 { 2.0 - u } else { u }) as f32
+        }
+    }
 }
 
+/// Offset from the center of the point of the shape at `t` (turns): scaled to
+/// the width and height, rotated, mirrored left to right for a mirrored head,
+/// and scaled by `size` (0..=1, the fades).
+pub fn movement_offset(e: &MovementEffect, t: f32, mirrored: bool, size: f32) -> (f32, f32) {
+    let (x, y) = shape_point(e.shape, t);
+    let (dx, dy) = (x * e.width / 2.0, y * e.height / 2.0);
+    let angle = if e.rotation.is_finite() {
+        e.rotation.to_radians()
+    } else {
+        0.0
+    };
+    let (sin, cos) = angle.sin_cos();
+    let (dx, dy) = (dx * cos - dy * sin, dx * sin + dy * cos);
+    let dx = if mirrored { -dx } else { dx };
+    (dx * size, dy * size)
+}
+
+/// Pan/tilt in degrees (before the fixture orientation, and before the
+/// position below for a relative effect) of a head with phase offset `phase`
+/// at cycle position `turns`. Shared with the UI preview.
+pub fn movement_point(e: &MovementEffect, turns: f64, phase: f32, mirrored: bool) -> (f32, f32) {
+    let (dx, dy) = movement_offset(e, movement_t(e, turns, phase), mirrored, 1.0);
+    (e.center_pan + dx, e.center_tilt + dy)
+}
+
+/// The point of the whole shape at `t` (turns, 0..=1), whatever the run mode
+/// and direction: what the preview draws.
+pub fn movement_path_point(e: &MovementEffect, t: f32, mirrored: bool) -> (f32, f32) {
+    let (dx, dy) = movement_offset(e, t, mirrored, 1.0);
+    (e.center_pan + dx, e.center_tilt + dy)
+}
+
+/// Size of a movement effect `elapsed_us` after it started (its fade in),
+/// and with `remaining_us` of its fade out left if it is stopping.
+pub fn movement_size(
+    e: &MovementEffect,
+    bpm: f64,
+    elapsed_us: u64,
+    remaining_us: Option<u64>,
+) -> f32 {
+    let part = |num: u64, den: u64| {
+        if den == 0 {
+            1.0
+        } else {
+            (num.min(den) as f64 / den as f64) as f32
+        }
+    };
+    let grown = part(elapsed_us, e.fade_in.to_micros(bpm));
+    let left = remaining_us.map_or(1.0, |r| part(r, e.fade_out.to_micros(bpm)));
+    grown.min(left)
+}
+
+/// Writes the pan and tilt of every head. A relative effect adds its shape
+/// to what `below` (the scenes) gives each head, the center of its range
+/// where nothing does.
 pub fn render_movement(
     m: &CompiledMovement,
     turns: f64,
+    size: f32,
+    below: &Layer,
     channels: &[LogicalChannel],
     layer: &mut Layer,
 ) {
+    let e = &m.effect;
     for h in &m.heads {
-        let (mut pan, mut tilt) = movement_point(&m.effect, turns, h.phase);
+        let (dx, dy) = movement_offset(e, movement_t(e, turns, h.phase), h.mirrored, size);
+        let (mut pan, mut tilt) = (e.center_pan + dx, e.center_tilt + dy);
         if h.orientation.effective_invert_pan() {
             pan = -pan;
         }
@@ -107,6 +170,15 @@ pub fn render_movement(
         }
         if h.orientation.swap_pan_tilt {
             std::mem::swap(&mut pan, &mut tilt);
+        }
+        if e.relative {
+            let at = |ch: u32, range: f32| {
+                below
+                    .get(ch as usize)
+                    .map_or(0.0, |v| dmx16_to_degrees(v, range))
+            };
+            pan += at(h.pan, h.pan_range);
+            tilt += at(h.tilt, h.tilt_range);
         }
         if h.pan_range > 0.0 {
             write(layer, channels, h.pan, degrees_to_dmx16(pan, h.pan_range));

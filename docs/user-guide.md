@@ -34,6 +34,20 @@ From a tablet or phone open `http://<pc-address>:9400/?token=<token>`.
   is marked and a click on any step jumps there. Each step can have its own
   *Hold* and *Fade* ("= 1 beat" means it follows the chaser); ⧉ duplicates a
   step; drag the ⠿ handle, or focus it and use ↑/↓, to reorder.
+  The movement editor has Start/Stop and the ⋯ menu too. Draw the shape on the
+  preview: drag its center to move it and the handles on its right and top
+  edges to resize it (or focus them and use the arrow keys, Shift for 10°).
+  The shaded area is out of reach of the group's lights; if part of the shape
+  goes there, a warning says so, because there the heads stop at their limit.
+  The heads are numbered in group order, as in the list below the preview;
+  *Together*, *Wave* and *Even* share the cycle among them (phase spread 0°,
+  180° and 360°). *Rotation* turns the shape; *Mirrored* makes every second
+  head, or the second half of the group, draw it mirrored left to right (⇄ in
+  the list, dashed on the preview). *Mode*: loop, single shot (one cycle, then
+  it stops) or ping-pong (forward, then back). *Fade in* grows the shape from
+  its center when it starts, *Fade out* shrinks it back when it is stopped.
+  *Relative to the position of the scenes* adds the shape to where the scenes
+  put each head: the center becomes an offset from there.
 - **Virtual Console**: in Design mode add and move widgets; in Show mode the
   widgets are live and the structure is locked.
 - **Simple Desk**: tap a group or some fixtures, then an intention (intensity,

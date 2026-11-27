@@ -12,7 +12,7 @@ use crate::PersistError;
 type Migration = fn(Value) -> Result<Value, String>;
 
 /// `MIGRATIONS[i]` migrates from version `i` to `i + 1`.
-const MIGRATIONS: &[Migration] = &[v0_to_v1, v1_to_v2, v2_to_v3, v3_to_v4];
+const MIGRATIONS: &[Migration] = &[v0_to_v1, v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5];
 
 /// Version 0: pre-release files without `schema_version` and with
 /// `"cues"`-less settings. Adds the version field and default settings.
@@ -60,6 +60,16 @@ fn v3_to_v4(mut v: Value) -> Result<Value, String> {
         kind.insert("members".into(), Value::Array(members));
     }
     obj.insert("schema_version".into(), Value::from(4));
+    Ok(v)
+}
+
+/// Version 5 gives movement effects a rotation, mirrored heads, a run mode,
+/// a relative mode and fades of their size: older shows are valid as they
+/// are (no rotation or mirror, looping, absolute, no fades), only the
+/// version number changes.
+fn v4_to_v5(mut v: Value) -> Result<Value, String> {
+    let obj = v.as_object_mut().ok_or("show is not a JSON object")?;
+    obj.insert("schema_version".into(), Value::from(5));
     Ok(v)
 }
 
