@@ -28,6 +28,7 @@ function show(addresses: number[]): Show {
       address: a,
       orientation: { invert_pan: false, invert_tilt: false, swap_pan_tilt: false, upside_down: false },
       calibration: null,
+      position_limits: null,
     })),
     groups: [],
     palettes: [],

@@ -281,8 +281,41 @@ pub enum MovementShape {
     Circle,
     Eight,
     Line,
-    Square,
-    Lissajous { x_freq: u8, y_freq: u8 },
+    /// A regular polygon, flat at the bottom, fitted to the width and height
+    /// of the effect. Four sides are the square the shape used to be: shows
+    /// saved with `square` open as this.
+    #[serde(alias = "square")]
+    Polygon {
+        #[serde(default = "default_polygon_sides")]
+        sides: u8,
+    },
+    Lissajous {
+        x_freq: u8,
+        y_freq: u8,
+    },
+    /// A sine wave across the width, with `periods` crests, played across and
+    /// back along the same wave.
+    Sine {
+        periods: u8,
+    },
+    /// The heads of the group open from the center to opposite sides (the
+    /// outer ones as far as the width) and close again, holding `hold`
+    /// percent of the cycle open and closed.
+    Fan {
+        hold: u8,
+    },
+}
+
+fn default_polygon_sides() -> u8 {
+    4
+}
+
+fn default_rainbow_spread() -> f32 {
+    1.0
+}
+
+fn default_chase_width() -> u8 {
+    1
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -358,10 +391,13 @@ pub enum MatrixAlgorithm {
     Solid {
         color: Color,
     },
-    /// A single colored column moving across the grid.
+    /// A band of colored lines moving across the grid, `width` cells wide
+    /// (1 to 16; one is a single line).
     Chase {
         color: Color,
         background: Color,
+        #[serde(default = "default_chase_width")]
+        width: u8,
     },
     /// Sine wave of intensity across the X axis.
     Wave {
@@ -385,6 +421,12 @@ pub enum MatrixAlgorithm {
     },
     /// Cells light up at random, a new draw eight times per cycle;
     /// `density` (0..=1) is the share of cells lit.
+    /// Every hue, along the axis and scrolling with time; `spread` rainbows
+    /// fit the grid (0.25 to 4).
+    Rainbow {
+        #[serde(default = "default_rainbow_spread")]
+        spread: f32,
+    },
     Twinkle {
         color: Color,
         background: Color,
@@ -417,6 +459,8 @@ pub enum MatrixAxis {
     Horizontal,
     /// Across the rows, top to bottom.
     Vertical,
+    /// Out from the center of the grid, in rings.
+    Radial,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

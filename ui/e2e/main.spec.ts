@@ -265,7 +265,37 @@ test('scene editor, movement preview, knob and DMX channel desk', async ({ page 
   const shape = page.locator('svg[aria-label="Movement preview"] path.shape');
   await expect(shape).toBeVisible();
   const circle = await shape.getAttribute('d');
-  await page.getByRole('button', { name: 'eight', exact: true }).click();
+  // Polygon, sine wave and fan, each with its own setting that redraws the path.
+  const shapeMenu = page.getByLabel('Shape', { exact: true });
+  await shapeMenu.selectOption('polygon');
+  await expect(page.getByLabel('Sides')).toHaveValue('4');
+  const square = await shape.getAttribute('d');
+  expect(square).not.toBe(circle);
+  await page.getByLabel('Sides').fill('6');
+  await expect.poll(() => shape.getAttribute('d')).not.toBe(square);
+  await shapeMenu.selectOption('sine');
+  await expect(page.getByLabel('Sides')).toHaveCount(0);
+  await expect(page.getByLabel('Waves')).toHaveValue('2');
+  const sine = await shape.getAttribute('d');
+  await page.getByLabel('Waves').fill('5');
+  await expect.poll(() => shape.getAttribute('d')).not.toBe(sine);
+  await shapeMenu.selectOption('fan');
+  await expect(page.getByLabel('Hold open and closed')).toHaveValue('10');
+  await expect(page.getByLabel('Waves')).toHaveCount(0);
+  // A fan is a straight line: drawn, but with no height to be visible.
+  await expect(shape).toBeAttached();
+  expect(await shape.getAttribute('d')).not.toBe(sine);
+  // A fan opens the heads together and is not mirrored.
+  await expect(page.getByRole('group', { name: 'Phase presets' }).getByRole('button', { name: 'Together' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByLabel('Mirrored heads')).toHaveCount(0);
+  await expect(page.locator('label.slider', { hasText: 'Opening' })).toHaveCount(1);
+  // Lissajous has a slider for each frequency.
+  await shapeMenu.selectOption('lissajous');
+  await expect(page.getByLabel('Mirrored heads')).toHaveCount(1);
+  const lissajous = await shape.getAttribute('d');
+  await page.getByLabel('X waves').fill('5');
+  await expect.poll(() => shape.getAttribute('d')).not.toBe(lissajous);
+  await shapeMenu.selectOption('eight');
   await expect.poll(() => shape.getAttribute('d')).not.toBe(circle);
   const before = await shape.getAttribute('d');
   await page.locator('label.slider', { hasText: 'Width' }).locator('input[type=number]').fill('200');
@@ -1691,12 +1721,34 @@ test('a matrix is edited with its own header and its new algorithms and modes', 
   await expect(page.locator('.matrix .cell').first()).toHaveText('1');
 
   const algorithm = page.getByRole('group', { name: 'Algorithm' });
+  // The colors chosen stay when the pattern changes.
+  await page.getByLabel('Color', { exact: true }).fill('#00ff00');
   await algorithm.getByRole('button', { name: 'Twinkle' }).click();
   await expect(page.getByLabel('Density')).toHaveValue('0.3');
   await expect(page.getByLabel('Background')).toBeVisible();
+  await expect(page.getByLabel('Color', { exact: true })).toHaveValue('#00ff00');
   // No axis for twinkle; there is one for fill.
-  await expect(page.getByLabel('Axis')).toHaveCount(0);
+  await expect(page.getByRole('group', { name: 'Axis' })).toHaveCount(0);
+  // A chase has a width, and can go out from the center.
+  await algorithm.getByRole('button', { name: 'Chase' }).click();
+  await expect(page.getByLabel('Color', { exact: true })).toHaveValue('#00ff00');
+  await expect(page.getByLabel('Chase width')).toHaveValue('1');
+  await page.getByLabel('Chase width').fill('3');
+  await expect(page.locator('.level', { hasText: 'Width' })).toContainText('3 cells');
+  const axis = page.getByRole('group', { name: 'Axis' });
+  await axis.getByRole('button', { name: 'From the center' }).click();
+  await expect(axis.getByRole('button', { name: 'From the center' })).toHaveAttribute('aria-pressed', 'true');
+  // A rainbow has no colors and no dimmer: each rules the other out.
+  await algorithm.getByRole('button', { name: 'Rainbow' }).click();
+  await expect(page.getByLabel('Rainbows')).toHaveValue('1');
+  await expect(page.getByLabel('Color', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('group', { name: 'Controls' }).getByRole('button', { name: 'Dimmer' })).toBeDisabled();
+  await page.getByLabel('Rainbows').fill('2');
+  await expect(page.locator('.level', { hasText: 'Rainbows' })).toContainText('2');
   await algorithm.getByRole('button', { name: 'Fill' }).click();
+  await expect(page.getByRole('group', { name: 'Controls' }).getByRole('button', { name: 'Dimmer' })).toBeEnabled();
+  await expect(page.getByLabel('Chase width')).toHaveCount(0);
+  await expect(axis.getByRole('button', { name: 'From the center' })).toHaveAttribute('aria-pressed', 'true');
   // On the dimmer only: levels instead of colors, and why the colors stay.
   const controls = page.getByRole('group', { name: 'Controls' });
   await controls.getByRole('button', { name: 'Dimmer' }).click();
@@ -1704,9 +1756,10 @@ test('a matrix is edited with its own header and its new algorithms and modes', 
   await expect(page.locator('input[type=color]')).toHaveCount(0);
   await expect(page.getByLabel('Level', { exact: true })).toHaveValue('1');
   await expect(page.getByLabel('Background level')).toHaveValue('0');
+  await expect(algorithm.getByRole('button', { name: 'Rainbow' })).toBeDisabled();
   await page.getByLabel('Level', { exact: true }).fill('0.5');
   await expect(page.locator('.level', { hasText: 'Level' }).first()).toContainText('50%');
-  await page.getByLabel('Axis').selectOption({ label: 'Across the rows' });
+  await axis.getByRole('button', { name: 'Rows' }).click();
   await page.getByLabel('Run mode').selectOption({ label: 'Ping-pong' });
   await page.getByLabel('Fade out', { exact: true }).selectOption({ label: '1 beat' });
 
@@ -1727,7 +1780,7 @@ test('a matrix is edited with its own header and its new algorithms and modes', 
   await page.getByRole('treeitem', { name: /^Movement \d+/ }).first().click();
   await page.getByRole('treeitem', { name: /Wipe/ }).click();
   await expect(page.getByLabel('Run mode').locator('option:checked')).toHaveText('Single shot');
-  await expect(page.getByLabel('Axis').locator('option:checked')).toHaveText('Across the rows');
+  await expect(axis.getByRole('button', { name: 'Rows' })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByLabel('Fade out', { exact: true }).locator('option:checked')).toHaveText('1 beat');
   await expect(controls.getByRole('button', { name: 'Dimmer' })).toHaveClass(/active/);
   await expect(page.getByLabel('Level', { exact: true })).toHaveValue('0.5');
@@ -1743,4 +1796,57 @@ test('a matrix is edited with its own header and its new algorithms and modes', 
   await page.getByRole('button', { name: 'More actions' }).click();
   await page.getByRole('menuitem', { name: 'Duplicate' }).click();
   await expect(name).toHaveValue('Wipe copy');
+});
+
+test('the position limits of a moving head are set at the patch and shown by the movement editor', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByText('Engine: connected')).toBeVisible();
+  await page.getByRole('button', { name: 'Stop all' }).click();
+
+  // A moving head has them; a dimmer does not.
+  await page.getByRole('button', { name: 'Fixtures', exact: true }).click();
+  await page.locator('.tree li', { hasText: 'Dimmer 1' }).first().locator('button.fx').click();
+  await expect(page.getByRole('heading', { name: 'Position limits' })).toHaveCount(0);
+  await page.locator('.tree li', { hasText: 'Spot 540 1' }).first().locator('button.fx').click();
+  await expect(page.getByRole('heading', { name: 'Position limits' })).toBeVisible();
+  await expect(page.getByLabel('Tilt max')).toHaveCount(0);
+  // Switched on, it starts as the range of the light.
+  await page.getByLabel('Limit the position').check();
+  await expect(page.getByLabel('Tilt max')).toHaveValue('135');
+  await expect(page.getByLabel('Pan min')).toHaveValue('-270');
+  await page.getByLabel('Tilt max').fill('30');
+  await page.getByLabel('Tilt max').press('Enter');
+  await page.getByLabel('Tilt min').fill('-20');
+  await page.getByLabel('Tilt min').press('Enter');
+  // What the engine kept: open the dimmer, then the spot again.
+  await page.locator('.tree li', { hasText: 'Dimmer 1' }).first().locator('button.fx').click();
+  await page.locator('.tree li', { hasText: 'Spot 540 1' }).first().locator('button.fx').click();
+  await expect(page.getByLabel('Tilt max')).toHaveValue('30');
+  await expect(page.getByLabel('Tilt min')).toHaveValue('-20');
+  // A minimum above the maximum drags the maximum along instead of being refused.
+  await page.getByLabel('Tilt min').fill('50');
+  await page.getByLabel('Tilt min').press('Enter');
+  await expect(page.getByLabel('Tilt max')).toHaveValue('50');
+  await page.getByLabel('Tilt min').fill('-20');
+  await page.getByLabel('Tilt min').press('Enter');
+  await page.getByLabel('Tilt max').fill('30');
+  await page.getByLabel('Tilt max').press('Enter');
+  await expect(page.getByLabel('Tilt min')).toHaveValue('-20');
+
+  // The movement editor says what the lights of the group reach: the tilt is
+  // cut by the limits of that spot.
+  await page.getByRole('button', { name: 'FX', exact: true }).click();
+  await page.getByRole('button', { name: 'New movement', exact: true }).click();
+  await page.getByLabel('Movement group').selectOption({ label: 'Beams' });
+  await expect(page.getByText(/tilt -20° to 30°/)).toBeVisible();
+
+  // Switched off, the whole range again.
+  await page.getByRole('button', { name: 'Fixtures', exact: true }).click();
+  await page.locator('.tree li', { hasText: 'Spot 540 1' }).first().locator('button.fx').click();
+  await page.getByLabel('Limit the position').uncheck();
+  await expect(page.getByLabel('Tilt max')).toHaveCount(0);
+  await page.getByRole('button', { name: 'FX', exact: true }).click();
+  await page.getByRole('treeitem', { name: /^Movement \d+/ }).last().click();
+  await expect(page.getByLabel('Movement group').locator('option:checked')).toHaveText('Beams');
+  await expect(page.getByText(/tilt ±135°/)).toBeVisible();
 });

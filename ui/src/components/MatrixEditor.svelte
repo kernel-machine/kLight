@@ -5,36 +5,28 @@
   // renames go through one queue, each applied to the latest function; the
   // draft follows the engine without undoing edits still on their way.
   import { untrack } from 'svelte';
-  import { app, notify, run } from '../lib/app.svelte';
+  import { app } from '../lib/app.svelte';
   import { colorLevel, groupLayout } from '../lib/core';
-  import { draftSync } from '../lib/draftSync';
-  import { editQueue } from '../lib/queue';
+  import { fxDraft } from '../lib/fxDraft.svelte';
+  import { carryColors } from '../lib/matrixColors';
   import { colorToHex, hexToColor } from '../lib/show';
-  import TimeSelect from './TimeSelect.svelte';
-  import type { Color, Function as Fn, MatrixAlgorithm, MatrixAxis, MatrixControls, MatrixEffect, RunMode } from '../lib/protocol';
+  import FxHeader from './FxHeader.svelte';
+  import FxTiming from './FxTiming.svelte';
+  import type { Color, Function as Fn, MatrixAlgorithm, MatrixAxis, MatrixControls, MatrixEffect } from '../lib/protocol';
   import MatrixPreview from './MatrixPreview.svelte';
 
   let { f, onduplicate, ondelete }: { f: Fn; onduplicate: () => void; ondelete: () => void } = $props();
   const show = $derived(app.s.show!);
   const source = $derived(f.kind.type === 'matrix_effect' ? f.kind : null);
-  const running = $derived((app.s.runtime?.state.active ?? []).some((a) => a.id === f.id));
   let draft = $state<MatrixEffect | null>(null);
 
   // Follow the engine's version without undoing edits still on their way.
-  const sync = draftSync<MatrixEffect>();
-  const strip = (kind: Fn['kind']): MatrixEffect | null => {
-    if (kind.type !== 'matrix_effect') return null;
-    const { type: _type, ...rest } = kind;
-    return $state.snapshot(rest) as MatrixEffect;
-  };
+  const fx = fxDraft<MatrixEffect>('matrix_effect', () => f, () => draft, (d) => (draft = d));
+  const { commit, rename } = fx;
   $effect(() => {
-    const incoming = source ? strip(source) : null;
-    const id = f.id;
-    if (!incoming) return;
-    untrack(() => {
-      const shown = sync.incoming(id, incoming, draft ? ($state.snapshot(draft) as MatrixEffect) : null);
-      if (shown) draft = shown;
-    });
+    const incoming = source ? fx.strip(source) : null;
+    void f.id;
+    untrack(() => fx.follow(incoming));
   });
   const group = $derived(show.groups.find((g) => g.id === draft?.group));
   const layout = $derived(groupLayout(show, group));
@@ -42,57 +34,21 @@
     (group?.members ?? []).map((m) => `${show.fixtures.find((f) => f.id === m.fixture)?.name ?? m.fixture}${m.head ? ` #${m.head + 1}` : ''}`),
   );
 
-  const enqueue = editQueue((e) => notify(String(e), 'error'));
-  const latest = (id: number) => app.s.show?.functions.find((x) => x.id === id);
-
-  function commit() {
-    if (!draft) return;
-    const kind = $state.snapshot(draft) as MatrixEffect;
-    sync.sent(kind);
-    const id = f.id;
-    enqueue(async () => {
-      const current = latest(id);
-      if (!current || current.kind.type !== 'matrix_effect') return;
-      const ok = await run({ type: 'set_function', function: { ...current, kind: { type: 'matrix_effect', ...kind } } });
-      const now = latest(id);
-      const engine = now ? strip(now.kind) : null;
-      if (!engine || f.id !== id) return;
-      const local = draft ? ($state.snapshot(draft) as MatrixEffect) : null;
-      if (ok) {
-        const shown = sync.settled(kind, engine, local);
-        if (shown) draft = shown;
-        return;
-      }
-      // Refused: back to what the engine has.
-      sync.refused();
-      draft = sync.incoming(id, engine, null);
-    });
-  }
-
-  /** Renamed on the latest version: an edit not confirmed yet is kept. */
-  function rename(name: string) {
-    const id = f.id;
-    enqueue(() => {
-      const current = latest(id);
-      if (!current || current.name === name) return;
-      return run({ type: 'set_function', function: { ...current, name } });
-    });
-  }
-
   const red = hexToColor('#ff0000');
   const blue = hexToColor('#0000ff');
   const black = hexToColor('#000000');
   const ALGORITHMS: Array<{ type: MatrixAlgorithm['type']; label: string; title: string; make: () => MatrixAlgorithm }> = [
     { type: 'solid', label: 'Solid', title: 'One color on every cell', make: () => ({ type: 'solid', color: red }) },
-    { type: 'chase', label: 'Chase', title: 'A line of color running across the grid', make: () => ({ type: 'chase', color: red, background: black }) },
+    { type: 'chase', label: 'Chase', title: 'A line of color running across the grid', make: () => ({ type: 'chase', color: red, background: black, width: 1 }) },
     { type: 'wave', label: 'Wave', title: 'A wave of brightness', make: () => ({ type: 'wave', color: blue, wavelength: 4 }) },
     { type: 'gradient', label: 'Gradient', title: 'Two colors blending, scrolling', make: () => ({ type: 'gradient', from: red, to: blue }) },
     { type: 'fill', label: 'Fill', title: 'The grid fills with the color, one line at a time', make: () => ({ type: 'fill', color: red, background: black }) },
+    { type: 'rainbow', label: 'Rainbow', title: 'Every hue, scrolling along the grid', make: () => ({ type: 'rainbow', spread: 1 }) },
     { type: 'twinkle', label: 'Twinkle', title: 'Cells lighting up at random', make: () => ({ type: 'twinkle', color: hexToColor('#ffffff'), background: black, density: 0.3 }) },
     { type: 'text', label: 'Text', title: 'Text scrolling across the grid', make: () => ({ type: 'text', text: 'KLIGHT', color: red }) },
   ];
   /** Algorithms that move along an axis. */
-  const ALONG = new Set<MatrixAlgorithm['type']>(['chase', 'wave', 'gradient', 'fill']);
+  const ALONG = new Set<MatrixAlgorithm['type']>(['chase', 'wave', 'gradient', 'fill', 'rainbow']);
   const COLOR_NAMES: Record<string, string> = { color: 'Color', background: 'Background', from: 'From', to: 'To' };
   const LEVEL_NAMES: Record<string, string> = { color: 'Level', background: 'Background level', from: 'From', to: 'To' };
   const CONTROLS: Array<{ value: MatrixControls; label: string; title: string }> = [
@@ -101,8 +57,11 @@
   ];
   /** On the dimmer, a gray of the level: what the engine reads back is the level. */
   const gray = (l: number): Color => ({ r: l, g: l, b: l });
-  const RUN_MODES: Array<[RunMode, string]> = [['Loop', 'Loop'], ['SingleShot', 'Single shot'], ['PingPong', 'Ping-pong']];
-  const AXES: Array<[MatrixAxis, string]> = [['horizontal', 'Across the columns'], ['vertical', 'Across the rows']];
+  const AXES: Array<[MatrixAxis, string, string]> = [
+    ['horizontal', 'Columns', 'Moves across the columns, left to right'],
+    ['vertical', 'Rows', 'Moves across the rows, top to bottom'],
+    ['radial', 'From the center', 'Moves out from the center of the grid, in rings'],
+  ];
 
   /** Color fields of the current algorithm, editable with color pickers. */
   const colorFields = $derived.by(() => {
@@ -115,145 +74,131 @@
     if (!draft) return;
     draft.algorithm = { ...draft.algorithm, [key]: value } as MatrixAlgorithm;
   }
-
-  const toggleRun = () => run(running ? { type: 'stop_function', id: f.id } : { type: 'start_function', id: f.id });
-
-  // ---- the header's menu of rarely used actions.
-  let menuOpen = $state(false);
-  let menuWrap = $state<HTMLElement>();
-  $effect(() => {
-    void f.id;
-    menuOpen = false;
-  });
-  const act = (fn: () => void) => () => {
-    menuOpen = false;
-    fn();
-  };
-  function outside(e: MouseEvent) {
-    if (menuOpen && menuWrap && !menuWrap.contains(e.target as Node)) menuOpen = false;
-  }
 </script>
 
-<svelte:window onclick={outside} />
-
-<div class="head">
-  <input class="name" value={f.name} aria-label="Matrix name" onchange={(e) => rename(e.currentTarget.value)} />
-  <span class="badge">Matrix</span>
-  <span class="spacer"></span>
-  {#if running}
-    <button class="primary run" onclick={toggleRun}>Stop</button>
-  {:else}
-    <button class="run" onclick={toggleRun} title="Plays it on the lights">Start</button>
-  {/if}
-  <div class="menu-wrap" bind:this={menuWrap}>
-    <button class="more" aria-label="More actions" aria-haspopup="menu" aria-expanded={menuOpen} onclick={() => (menuOpen = !menuOpen)}>⋯</button>
-    {#if menuOpen}
-      <div class="menu" role="menu" tabindex="-1" onkeydown={(e) => { if (e.key === 'Escape') menuOpen = false; }}>
-        <button role="menuitem" onclick={act(onduplicate)}>Duplicate</button>
-        <hr />
-        <button role="menuitem" class="danger-text" onclick={act(ondelete)}>Delete matrix</button>
-      </div>
-    {/if}
-  </div>
-</div>
+<FxHeader {f} badge="Matrix" nameLabel="Matrix name" deleteLabel="Delete matrix" onrename={rename} {onduplicate} {ondelete} />
 
 {#if draft}
   <div class="editor">
-    <MatrixPreview efx={draft} {layout} {labels} bpm={app.s.runtime?.state.tempo.bpm ?? 120} />
-    <div class="col">
-      <label class="row">Group
-        <select value={draft.group} aria-label="Matrix group" onchange={(e) => { draft!.group = Number(e.currentTarget.value); commit(); }}>
-          {#each show.groups as g (g.id)}<option value={g.id}>{g.name}</option>{/each}
-        </select>
-      </label>
-      <div class="seg" role="group" aria-label="Controls">
-        {#each CONTROLS as c (c.value)}
-          <button class:active={draft.controls === c.value} title={c.title} onclick={() => { draft!.controls = c.value; commit(); }}>{c.label}</button>
-        {/each}
-      </div>
-      {#if draft.controls === 'dimmer'}
-        <p class="hint" data-dimmer-hint>
-          The pattern drives the intensity only: give these lights their colors with a scene. Intensity adds up
-          (highest wins), so a scene that also sets it keeps the lights at least that bright.
-        </p>
-      {/if}
-      <div class="algos" role="group" aria-label="Algorithm">
-        {#each ALGORITHMS as a (a.type)}
-          <button class:active={draft.algorithm.type === a.type} title={a.title} onclick={() => { draft!.algorithm = a.make(); commit(); }}>{a.label}</button>
-        {/each}
-      </div>
-      {#if draft.controls === 'dimmer'}
-        {#each colorFields as [key, c] (key)}
-          {@const level = colorLevel(c)}
-          <label class="row level">
-            <span>{LEVEL_NAMES[key] ?? key}</span>
-            <input type="range" min="0" max="1" step="0.01" aria-label={LEVEL_NAMES[key] ?? key} value={level} oninput={(e) => setField(key, gray(Number(e.currentTarget.value)))} onchange={commit} />
-            <span class="pct">{Math.round(level * 100)}%</span>
-          </label>
-        {/each}
-      {:else}
-        <div class="row colors">
-          {#each colorFields as [key, c] (key)}
-            <label class="row">{COLOR_NAMES[key] ?? key} <input type="color" aria-label={COLOR_NAMES[key] ?? key} value={colorToHex(c)} oninput={(e) => setField(key, hexToColor(e.currentTarget.value))} onchange={commit} /></label>
+    <div class="fx-preview">
+      <MatrixPreview efx={draft} {layout} {labels} bpm={app.s.runtime?.state.tempo.bpm ?? 120} />
+    </div>
+    <div class="fx-sections">
+      <section class="fx-card">
+        <h3>Lights</h3>
+        <label class="fx-field">
+          <span>Group</span>
+          <select value={draft.group} aria-label="Matrix group" onchange={(e) => { draft!.group = Number(e.currentTarget.value); commit(); }}>
+            {#each show.groups as g (g.id)}<option value={g.id}>{g.name}</option>{/each}
+          </select>
+        </label>
+        <div class="fx-field">
+          <span>The pattern controls</span>
+          <div class="fx-seg" role="group" aria-label="Controls">
+            {#each CONTROLS as c (c.value)}
+              <button class:active={draft.controls === c.value} aria-pressed={draft.controls === c.value} disabled={c.value === 'dimmer' && draft.algorithm.type === 'rainbow'} title={c.value === 'dimmer' && draft.algorithm.type === 'rainbow' ? 'A rainbow has no brightness to vary: it needs the Color controls' : c.title} onclick={() => { draft!.controls = c.value; commit(); }}>{c.label}</button>
+            {/each}
+          </div>
+          {#if draft.controls === 'dimmer'}
+            <p class="fx-hint" data-dimmer-hint>
+              Only the intensity: give these lights their colors with a scene. Intensity adds up (highest wins), so a
+              scene that also sets it keeps the lights at least that bright.
+            </p>
+          {:else}
+            <p class="fx-hint">The color of the lights, and their intensity along with it.</p>
+          {/if}
+        </div>
+      </section>
+
+      <section class="fx-card">
+        <h3>Pattern</h3>
+        <div class="fx-chips" role="group" aria-label="Algorithm">
+          {#each ALGORITHMS as a (a.type)}
+            <button class:active={draft.algorithm.type === a.type} aria-pressed={draft.algorithm.type === a.type} disabled={a.type === 'rainbow' && draft.controls === 'dimmer'} title={a.type === 'rainbow' && draft.controls === 'dimmer' ? 'A rainbow is all colors: it needs the Color controls' : a.title} onclick={() => { draft!.algorithm = carryColors(draft!.algorithm, a.make()); commit(); }}>{a.label}</button>
           {/each}
         </div>
+        {#if draft.algorithm.type === 'wave'}
+          {@const a = draft.algorithm}
+          <label class="fx-field level">
+            <span>Wavelength</span>
+            <input type="range" min="1" max="32" step="0.5" aria-label="Wavelength" value={a.wavelength} oninput={(e) => setField('wavelength', Number(e.currentTarget.value))} onchange={commit} />
+            <span class="pct">{a.wavelength} cells</span>
+          </label>
+        {/if}
+        {#if draft.algorithm.type === 'rainbow'}
+          {@const a = draft.algorithm}
+          <label class="fx-field level">
+            <span>Rainbows</span>
+            <input type="range" min="0.25" max="4" step="0.25" aria-label="Rainbows" value={a.spread} oninput={(e) => setField('spread', Number(e.currentTarget.value))} onchange={commit} />
+            <span class="pct">{a.spread}</span>
+          </label>
+        {/if}
+        {#if draft.algorithm.type === 'twinkle'}
+          {@const a = draft.algorithm}
+          <label class="fx-field level">
+            <span>Density</span>
+            <input type="range" min="0" max="1" step="0.05" aria-label="Density" value={a.density} oninput={(e) => setField('density', Number(e.currentTarget.value))} onchange={commit} />
+            <span class="pct">{Math.round(a.density * 100)}%</span>
+          </label>
+        {/if}
+        {#if draft.algorithm.type === 'text'}
+          {@const a = draft.algorithm}
+          <label class="fx-field"><span>Text</span> <input value={a.text} oninput={(e) => setField('text', e.currentTarget.value)} onchange={commit} /></label>
+        {/if}
+        {#if draft.algorithm.type === 'chase'}
+          {@const a = draft.algorithm}
+          <label class="fx-field level">
+            <span>Width</span>
+            <input type="range" min="1" max="16" step="1" aria-label="Chase width" value={a.width} oninput={(e) => setField('width', Number(e.currentTarget.value))} onchange={commit} />
+            <span class="pct">{Math.min(16, Math.max(1, a.width))} {a.width === 1 ? 'cell' : 'cells'}</span>
+          </label>
+        {/if}
+        {#if ALONG.has(draft.algorithm.type)}
+          <div class="fx-field">
+            <span>Moves</span>
+            <div class="fx-seg" role="group" aria-label="Axis">
+              {#each AXES as [v, label, title] (v)}
+                <button class:active={draft.axis === v} aria-pressed={draft.axis === v} {title} onclick={() => { draft!.axis = v; commit(); }}>{label}</button>
+              {/each}
+            </div>
+          </div>
+        {/if}
+      </section>
+
+      {#if colorFields.length > 0}
+      <section class="fx-card">
+        <h3>{draft.controls === 'dimmer' ? 'Levels' : 'Colors'}</h3>
+        {#if draft.controls === 'dimmer'}
+          {#each colorFields as [key, c] (key)}
+            {@const level = colorLevel(c)}
+            <label class="fx-field level">
+              <span>{LEVEL_NAMES[key] ?? key}</span>
+              <input type="range" min="0" max="1" step="0.01" aria-label={LEVEL_NAMES[key] ?? key} value={level} oninput={(e) => setField(key, gray(Number(e.currentTarget.value)))} onchange={commit} />
+              <span class="pct">{Math.round(level * 100)}%</span>
+            </label>
+          {/each}
+        {:else if colorFields.length > 0}
+          <div class="colors">
+            {#each colorFields as [key, c] (key)}
+              <label class="swatch"><span>{COLOR_NAMES[key] ?? key}</span> <input type="color" aria-label={COLOR_NAMES[key] ?? key} value={colorToHex(c)} oninput={(e) => setField(key, hexToColor(e.currentTarget.value))} onchange={commit} /></label>
+            {/each}
+          </div>
+        {/if}
+      </section>
       {/if}
-      {#if draft.algorithm.type === 'wave'}
-        {@const a = draft.algorithm}
-        <label class="row">Wavelength <input type="range" min="1" max="32" step="0.5" value={a.wavelength} oninput={(e) => setField('wavelength', Number(e.currentTarget.value))} onchange={commit} /> {a.wavelength} cells</label>
-      {/if}
-      {#if draft.algorithm.type === 'twinkle'}
-        {@const a = draft.algorithm}
-        <label class="row">Density <input type="range" min="0" max="1" step="0.05" aria-label="Density" value={a.density} oninput={(e) => setField('density', Number(e.currentTarget.value))} onchange={commit} /> {Math.round(a.density * 100)}% of the cells</label>
-      {/if}
-      {#if draft.algorithm.type === 'text'}
-        {@const a = draft.algorithm}
-        <label class="row">Text <input value={a.text} oninput={(e) => setField('text', e.currentTarget.value)} onchange={commit} /></label>
-      {/if}
-      {#if ALONG.has(draft.algorithm.type)}
-        <label class="row">Moves
-          <select aria-label="Axis" value={draft.axis} onchange={(e) => { draft!.axis = e.currentTarget.value as MatrixAxis; commit(); }}>
-            {#each AXES as [v, label] (v)}<option value={v}>{label}</option>{/each}
-          </select>
-        </label>
-      {/if}
-      <div class="row">
-        <TimeSelect label="Cycle" value={draft.period} onchange={(period) => { draft!.period = period; commit(); }} />
-        <button onclick={() => { draft!.direction = draft!.direction === 'Forward' ? 'Backward' : 'Forward'; commit(); }}>Direction: {draft.direction}</button>
-        <label class="row">Mode
-          <select value={draft.run_mode} aria-label="Run mode" onchange={(e) => { draft!.run_mode = e.currentTarget.value as RunMode; commit(); }}>
-            {#each RUN_MODES as [v, label] (v)}<option value={v}>{label}</option>{/each}
-          </select>
-        </label>
-      </div>
-      <div class="row">
-        <TimeSelect label="Fade in" zero value={draft.fade_in} onchange={(fade_in) => { draft!.fade_in = fade_in; commit(); }} />
-        <TimeSelect label="Fade out" zero value={draft.fade_out} onchange={(fade_out) => { draft!.fade_out = fade_out; commit(); }} />
-      </div>
+
+      <FxTiming value={draft} onchange={(patch) => { Object.assign(draft!, patch); commit(); }} />
     </div>
   </div>
 {/if}
 
 <style>
-  .head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
-  .head .name { font-size: 18px; font-weight: 600; min-width: 0; flex: 0 1 280px; }
-  .spacer { flex: 1; }
-  .run { min-height: 36px; padding: 0 16px; }
-  .menu-wrap { position: relative; }
-  .more { width: 38px; min-height: 36px; padding: 0; font-size: 18px; line-height: 1; }
-  .menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; min-width: 220px; display: flex; flex-direction: column; padding: 6px; background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 10px 28px rgb(0 0 0 / 45%); }
-  .menu button { text-align: left; border: none; background: none; padding: 8px 10px; }
-  .menu button:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 18%, transparent); }
-  .menu hr { width: 100%; border: none; border-top: 1px solid var(--border); margin: 4px 0; }
-  .danger-text { color: var(--danger, #e5484d); }
-  .editor { display: grid; grid-template-columns: minmax(260px, 1.2fr) 1fr; gap: 12px; align-items: start; }
+  .editor { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(340px, 1.1fr); gap: 20px; align-items: start; }
   @media (max-width: 1100px) { .editor { grid-template-columns: 1fr; } }
-  .algos { display: flex; flex-wrap: wrap; gap: 4px; }
-  .colors { flex-wrap: wrap; gap: 12px; }
-  .seg { display: flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; width: fit-content; }
-  .seg button { border: none; border-radius: 0; }
-  .seg button + button { border-left: 1px solid var(--border); }
-  .hint { margin: 0; font-size: 12px; color: var(--muted); }
-  .level { display: grid; grid-template-columns: 120px 1fr 44px; gap: 6px; align-items: center; }
+  .colors { display: flex; flex-wrap: wrap; gap: 20px; }
+  .swatch { display: flex; align-items: center; gap: 8px; }
+  .swatch input { width: 44px; height: 32px; padding: 2px; }
+  .level { display: grid; grid-template-columns: 120px minmax(0, 1fr) 70px; gap: 10px; align-items: center; }
+  .level > span:first-child { font-size: 13px; color: var(--text); }
   .pct { text-align: right; font-variant-numeric: tabular-nums; }
 </style>

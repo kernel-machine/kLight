@@ -44,6 +44,7 @@ const show: Show = {
       address: 10,
       orientation: { invert_pan: false, invert_tilt: false, swap_pan_tilt: false, upside_down: false },
       calibration: null,
+      position_limits: null,
     },
   ],
   groups: [],

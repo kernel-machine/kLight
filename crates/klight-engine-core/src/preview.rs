@@ -163,15 +163,15 @@ const REACH_SAMPLES: u32 = 720;
 ///
 /// [`degrees_to_dmx16`]: klight_fixtures::convert::degrees_to_dmx16
 pub fn movement_reach(show: &Show, compiled: &CompiledShow, m: &MovementEffect) -> MovementReach {
-    // How far the shape goes from 0 on each axis, at any phase, mirrored or
-    // not. A relative shape is measured as if the scenes left the heads at
-    // the center of their range.
-    let (mut far_pan, mut far_tilt) = (0.0_f32, 0.0_f32);
+    // How far the shape goes on each axis, at any phase, mirrored or not. A
+    // relative shape is measured as if the scenes left the heads at the
+    // center of their range.
+    let (mut pan_span, mut tilt_span) = ((f32::MAX, f32::MIN), (f32::MAX, f32::MIN));
     for mirrored in [false, m.mirror != MovementMirror::None] {
         for k in 0..=REACH_SAMPLES {
             let (p, t) = movement_path_point(m, k as f32 / REACH_SAMPLES as f32, mirrored);
-            far_pan = far_pan.max(p.abs());
-            far_tilt = far_tilt.max(t.abs());
+            pan_span = (pan_span.0.min(p), pan_span.1.max(p));
+            tilt_span = (tilt_span.0.min(t), tilt_span.1.max(t));
         }
     }
     // Rounding of the drawing, not a real overshoot.
@@ -183,16 +183,18 @@ pub fn movement_reach(show: &Show, compiled: &CompiledShow, m: &MovementEffect) 
         tilt_limit: None,
         clipped: false,
     };
-    let narrowest = |limit: &mut Option<f32>, half: f32| {
-        *limit = Some(limit.map_or(half, |l| l.min(half)));
+    // What a head allows on an axis: its range around the center, cut by the
+    // position limits of its fixture (in the frame of the show). The group
+    // reaches what all its heads do.
+    let narrow = |reach: &mut Option<(f32, f32)>, (lo, hi): (f32, f32)| {
+        *reach = Some(reach.map_or((lo, hi), |(a, b)| (a.max(lo), b.min(hi))));
     };
     for (fi, head, moving) in compiled.movement_members(show, m) {
         let Some(cf) = compiled.fixtures.get(fi as usize) else {
             continue;
         };
-        let fixture_name = show
-            .fixture(cf.id)
-            .map_or_else(String::new, |f| f.name.clone());
+        let patched = show.fixture(cf.id);
+        let fixture_name = patched.map_or_else(String::new, |f| f.name.clone());
         let name = if cf.heads.len() > 1 {
             format!("{fixture_name} · {}", u32::from(head) + 1)
         } else {
@@ -206,6 +208,7 @@ pub fn movement_reach(show: &Show, compiled: &CompiledShow, m: &MovementEffect) 
             mirrored: moving.is_some_and(|h| h.mirrored),
         });
         let Some(h) = moving else { continue };
+        let limits = patched.and_then(|f| f.position_limits);
         // The effect's pan goes to the tilt channel when the axes are swapped.
         let (pan_channel, pan_range, tilt_channel, tilt_range) = if h.orientation.swap_pan_tilt {
             (h.tilt, h.tilt_range, h.pan, h.pan_range)
@@ -213,12 +216,16 @@ pub fn movement_reach(show: &Show, compiled: &CompiledShow, m: &MovementEffect) 
             (h.pan, h.pan_range, h.tilt, h.tilt_range)
         };
         if pan_channel != NO_CHANNEL && pan_range > 0.0 {
-            narrowest(&mut reach.pan_limit, pan_range / 2.0);
-            reach.clipped |= far_pan > pan_range / 2.0 + SLACK;
+            let (lo, hi) = limits.map_or((f32::MIN, f32::MAX), |l| (l.pan_min, l.pan_max));
+            let span = ((-pan_range / 2.0).max(lo), (pan_range / 2.0).min(hi));
+            narrow(&mut reach.pan_limit, span);
+            reach.clipped |= pan_span.0 < span.0 - SLACK || pan_span.1 > span.1 + SLACK;
         }
         if tilt_channel != NO_CHANNEL && tilt_range > 0.0 {
-            narrowest(&mut reach.tilt_limit, tilt_range / 2.0);
-            reach.clipped |= far_tilt > tilt_range / 2.0 + SLACK;
+            let (lo, hi) = limits.map_or((f32::MIN, f32::MAX), |l| (l.tilt_min, l.tilt_max));
+            let span = ((-tilt_range / 2.0).max(lo), (tilt_range / 2.0).min(hi));
+            narrow(&mut reach.tilt_limit, span);
+            reach.clipped |= tilt_span.0 < span.0 - SLACK || tilt_span.1 > span.1 + SLACK;
         }
     }
     reach

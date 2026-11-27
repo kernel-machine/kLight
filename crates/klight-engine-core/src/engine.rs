@@ -1472,6 +1472,7 @@ impl Engine {
             self.rt.blackout,
             &mut self.frames,
         );
+        hold_position_limits(channels, &mut self.frames);
         for (frame, slot) in self.frames.iter().zip(&self.outputs) {
             slot.write(frame);
         }
@@ -1686,6 +1687,43 @@ pub fn apply_raw_channels(
                 u8::try_from((u32::from(v8) * u32::from(grand_master) + 32767) / 65535)
                     .unwrap_or(u8::MAX)
             };
+        }
+    }
+}
+
+/// Holds the pan and tilt of the fixtures with position limits inside them in
+/// the frames about to be sent: from whatever layer they come, and from the
+/// raw channels of the Simple Desk, which are written into the frames after
+/// the merge. It is the last word on the lights. A channel of one byte has no finer step than 256
+/// values: its bounds are rounded inwards.
+pub fn hold_position_limits(channels: &[LogicalChannel], frames: &mut [DmxFrame]) {
+    for lc in channels {
+        if (lc.min, lc.max) == (0, u16::MAX) || lc.coarse == NO_ADDR {
+            continue;
+        }
+        let Some(frame) = frames.get_mut(usize::from(lc.universe)) else {
+            continue;
+        };
+        let coarse = frame.get(usize::from(lc.coarse)).copied().unwrap_or(0);
+        if lc.fine == NO_ADDR {
+            let high = (lc.max >> 8) as u8;
+            let low = u8::try_from((u32::from(lc.min) + 255) >> 8)
+                .unwrap_or(u8::MAX)
+                .min(high);
+            if let Some(b) = frame.get_mut(usize::from(lc.coarse)) {
+                *b = coarse.clamp(low, high);
+            }
+            continue;
+        }
+        let fine = frame.get(usize::from(lc.fine)).copied().unwrap_or(0);
+        let [hi, lo] = u16::from_be_bytes([coarse, fine])
+            .clamp(lc.min, lc.max)
+            .to_be_bytes();
+        if let Some(b) = frame.get_mut(usize::from(lc.coarse)) {
+            *b = hi;
+        }
+        if let Some(b) = frame.get_mut(usize::from(lc.fine)) {
+            *b = lo;
         }
     }
 }

@@ -43,6 +43,7 @@ fn patch(
         address,
         orientation: Orientation::default(),
         calibration: None,
+        position_limits: None,
     }
 }
 

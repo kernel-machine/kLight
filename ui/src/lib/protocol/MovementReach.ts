@@ -8,10 +8,11 @@ import type { MovementHead } from "./MovementHead";
  */
 export type MovementReach = { heads: Array<MovementHead>, 
 /**
- * Pan every head that gives its range can reach: from `-pan_limit` to
- * `+pan_limit`. `None` if no head gives one.
+ * Pan every head that gives its range can reach, as (lowest, highest):
+ * the range of the head cut by the position limits of its fixture.
+ * `None` if no head gives a range.
  */
-pan_limit: number | null, tilt_limit: number | null, 
+pan_limit: [number, number] | null, tilt_limit: [number, number] | null, 
 /**
  * Part of the shape is beyond what some head reaches: there the head
  * stops at its limit and the shape is flattened. For a relative effect,

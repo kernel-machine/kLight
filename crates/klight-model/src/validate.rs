@@ -29,6 +29,8 @@ pub enum PatchError {
     UnknownMode { definition: String, mode: String },
     #[error("address {address} with footprint {footprint} does not fit in a universe")]
     OutOfRange { address: u16, footprint: u16 },
+    #[error("position limits must be numbers, each minimum not above its maximum")]
+    InvalidPositionLimits,
     #[error("address conflict between {first} and {second} at address {address}")]
     Conflict {
         first: FixtureId,
@@ -45,6 +47,9 @@ pub fn footprint(show: &Show, fixture: &PatchedFixture) -> Option<u16> {
 
 /// Checks that a single fixture is patchable (references and range).
 pub fn check_fixture(show: &Show, fixture: &PatchedFixture) -> Result<u16, PatchError> {
+    if fixture.position_limits.is_some_and(|l| !l.is_valid()) {
+        return Err(PatchError::InvalidPositionLimits);
+    }
     if show.universe(fixture.universe).is_none() {
         return Err(PatchError::UnknownUniverse {
             universe: fixture.universe,

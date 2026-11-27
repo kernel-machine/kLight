@@ -2,4 +2,4 @@
 import type { FixtureId } from "./FixtureId";
 import type { UniverseId } from "./UniverseId";
 
-export type PatchError = { "type": "unknown_universe", universe: UniverseId, } | { "type": "unknown_definition", definition: string, } | { "type": "unknown_mode", definition: string, mode: string, } | { "type": "out_of_range", address: number, footprint: number, } | { "type": "conflict", first: FixtureId, second: FixtureId, address: number, };
+export type PatchError = { "type": "unknown_universe", universe: UniverseId, } | { "type": "unknown_definition", definition: string, } | { "type": "unknown_mode", definition: string, mode: string, } | { "type": "out_of_range", address: number, footprint: number, } | { "type": "invalid_position_limits" } | { "type": "conflict", first: FixtureId, second: FixtureId, address: number, };

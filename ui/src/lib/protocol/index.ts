@@ -94,6 +94,7 @@ export type { PatchError } from "./PatchError";
 export type { PatchedFixture } from "./PatchedFixture";
 export type { Permission } from "./Permission";
 export type { Physical } from "./Physical";
+export type { PositionLimits } from "./PositionLimits";
 export type { ProgrammerEntry } from "./ProgrammerEntry";
 export type { Rgb8 } from "./Rgb8";
 export type { RunMode } from "./RunMode";

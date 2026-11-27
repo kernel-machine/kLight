@@ -4,4 +4,4 @@
  * Along which side of the grid a matrix effect moves (chase, wave,
  * gradient, fill). Text always scrolls left.
  */
-export type MatrixAxis = "horizontal" | "vertical";
+export type MatrixAxis = "horizontal" | "vertical" | "radial";

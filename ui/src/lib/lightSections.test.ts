@@ -11,6 +11,7 @@ const fixture = (id: number, name: string, definition: string): PatchedFixture =
   address: id,
   orientation: { invert_pan: false, invert_tilt: false, swap_pan_tilt: false, upside_down: false },
   calibration: null,
+  position_limits: null,
 });
 
 const all = [

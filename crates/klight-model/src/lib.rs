@@ -36,7 +36,7 @@ pub use ids::*;
 pub use palette::{Palette, PaletteKind};
 pub use patch::{
     FixtureGroup, GroupLayout, GroupMember, Orientation, OutputAssignment, OutputKind,
-    PatchedFixture, Universe, UNIVERSE_SIZE,
+    PatchedFixture, PositionLimits, Universe, UNIVERSE_SIZE,
 };
 pub use runtime::{
     beat_flash, ActiveFunction, BeatFlash, ChannelOverride, ProgrammerEntry, RuntimeSnapshot,

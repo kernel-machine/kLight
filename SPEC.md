@@ -173,6 +173,14 @@ settings. It has a `schema_version` field.
 - **Orientation** set at patch time for each fixture: inverted pan, inverted
   tilt, swapped pan/tilt, upside-down mounting. From then on "up", "left" and
   degrees mean the same for every head.
+- **Position limits**, optional, set at patch time for each fixture with pan
+  and tilt: the lowest and highest pan and tilt, in degrees from the center and
+  in the same frame as the scenes (the orientation is applied after). Every
+  value sent to the lights is held inside them, whatever plays and from
+  whatever layer, the raw channels of the Simple Desk included: they keep the
+  beams away from the audience or the truss. A limit beyond the range of the
+  light never binds; the minimum cannot be above the maximum (the patch
+  command is refused).
 - **Fixture groups** with **order** and **2D grid** (position of each head
   in the grid): the basis for matrices, fans and effect phase. Scenes,
   palettes and effects refer to the group, not to individual channels: a
@@ -271,8 +279,22 @@ consoles (grandMA, MagicQ), with a simple interface.
   is one, else tenths, else hundredths). Updating a cue from the programmer
   follows the rules of adding values to a scene (same slot replaced, channels
   set by hand that it writes released).
-- `MovementEffect` (EFX) — pan/tilt generators: circle, eight, line, square,
-  lissajous; size, speed, phase distributed over the group, and:
+- `MovementEffect` (EFX) — pan/tilt generators; size, speed, phase distributed
+  over the group, and:
+  - **shape**: circle, eight, line, lissajous, and
+    - *polygon* with 3 to 12 sides (flat at the bottom, stretched to the whole
+      width and height; four sides is the square older shows had, which open
+      as a four-sided polygon),
+    - *sine wave* with 1 to 8 waves across the width, played across and back
+      along the same wave,
+    - *fan*: the heads of the group, from the first to the last, open from the
+      center to opposite sides, as far as the width for the outer ones (a
+      lone head, or the middle one of an odd group, stays put), and close
+      again, at a steady speed, holding up to 40% of the cycle open and
+      closed. Turn it with the rotation to open it up and down. Mirroring
+      does not apply to it. Choosing it sets the phase to together, so that
+      the heads open at the same time (a phase spread opens them one after
+      the other);
   - **rotation** of the shape around its center (degrees, counterclockwise);
   - **mirrored heads**: none, every second head, or the second half of the
     group (the middle head of an odd group is not) draw the shape mirrored left
@@ -291,12 +313,21 @@ consoles (grandMA, MagicQ), with a simple interface.
   (for a relative effect, as if the scenes left the heads in the middle).
 - `MatrixEffect` — algorithms over a group with a 2D grid: solid color,
   chase, waves, gradients, text, fill (the grid fills with the color over the
-  cycle), twinkle (a share of the cells lit at random, a new draw eight times
+  cycle), rainbow (every hue along the axis, scrolling with the cycle, 0.25
+  to 4 rainbows across the grid; it is offered only with the color controls,
+  and once chosen it rules the dimmer out; a file that has both plays it at
+  full level),
+  twinkle (a share of the cells lit at random, a new draw eight times
   per cycle, the same every time) (in Rust, in the core), and:
-  - **axis**: chase, wave, gradient and fill move across the columns or
-    across the rows; text always scrolls left;
+  - **axis**: chase, wave, gradient, fill and rainbow move across the columns, across
+    the rows or out from the center of the grid, in rings (the center is the
+    first, and backwards it goes inwards); text always scrolls left;
+  - **chase width**: the chase lights a band of 1 to 16 lines (cells along
+    its axis), which goes on from the first line when it passes the last;
   - **controls**: the color (every cell gets the color of the pattern, at the
-    effect's level of intensity), or the dimmer only (every cell gets the
+    effect's level of intensity; each light is given it as a scene would give
+    it, §7.4: white and amber channels, cyan/magenta/yellow, the nearest slot
+    of a color wheel, its calibration), or the dimmer only (every cell gets the
     brightness of the pattern, its brightest component, as intensity; the
     color channels are left to the scenes). Intensity merges HTP (§8.3), so a
     scene that also sets it raises the floor of the effect;
@@ -404,6 +435,8 @@ Raw Simple Desk channels stay above the preview.
 - Properties to guarantee with property-based tests, for example:
   - HTP never produces a value lower than any of its inputs.
   - Blackout → all intensity channels at 0, always.
+  - Pan and tilt are never outside the position limits of their fixture,
+    whatever the layers and the raw channels ask.
   - Grand master at 0 → no intensity > 0; it does not touch pan/tilt.
   - Fade: value always between start and end, monotonic, reaches the
     target exactly at the end of the time.

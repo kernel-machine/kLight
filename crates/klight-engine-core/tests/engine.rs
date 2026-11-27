@@ -822,6 +822,7 @@ fn chaser_with_effect_steps() -> klight_engine_core::Engine {
         algorithm: MatrixAlgorithm::Chase {
             color: Color::RED,
             background: Color::BLACK,
+            width: 1,
         },
         period: TimeValue::Ms(400),
         direction: Direction::Forward,
@@ -1078,6 +1079,7 @@ fn matrix_chase_lights_one_column() {
                     algorithm: MatrixAlgorithm::Chase {
                         color: Color::RED,
                         background: Color::BLACK,
+                        width: 1,
                     },
                     period: TimeValue::Ms(400),
                     direction: Direction::Forward,

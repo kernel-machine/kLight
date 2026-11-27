@@ -27,14 +27,16 @@
   const colors = $derived(matrix.colors(turns).map(colorToHex));
 </script>
 
-<div class="matrix" style="--w:{layout.width}; --h:{layout.height}">
-  {#each layout.positions as cell, i (i)}
-    <div class="cell" style="grid-column:{cell.x + 1}; grid-row:{cell.y + 1}; background:{colors[i]}" title="{i + 1}. {labels[i] ?? ''}"><span>{i + 1}</span></div>
-  {:else}
-    <span class="muted">This group has no lights: add some in Fixtures → Groups.</span>
-  {/each}
-</div>
-<p class="muted small">{layout.width} × {layout.height} grid, {layout.positions.length} heads, numbered in group order. Their places in the grid are set in Fixtures → Groups.{#if efx.controls === 'dimmer'} On the dimmer: the gray is the intensity, the colors come from the scenes.{/if}</p>
+{#if layout.positions.length === 0}
+  <p class="muted">This group has no lights: add some in Fixtures → Groups.</p>
+{:else}
+  <div class="matrix" style="--w:{layout.width}; --h:{layout.height}">
+    {#each layout.positions as cell, i (i)}
+      <div class="cell" style="grid-column:{cell.x + 1}; grid-row:{cell.y + 1}; background:{colors[i]}" title="{i + 1}. {labels[i] ?? ''}"><span>{i + 1}</span></div>
+    {/each}
+  </div>
+{/if}
+<p class="muted small">{layout.width} × {layout.height} grid, {layout.positions.length} heads, numbered in group order. Their places in the grid are set in Fixtures → Groups.{#if efx.controls === 'dimmer'}{' '}On the dimmer: the gray is the intensity, the colors come from the scenes.{/if}</p>
 
 <style>
   .matrix {

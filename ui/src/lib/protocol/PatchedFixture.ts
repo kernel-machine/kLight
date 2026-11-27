@@ -3,10 +3,16 @@ import type { ColorCalibration } from "./ColorCalibration";
 import type { DefinitionKey } from "./DefinitionKey";
 import type { FixtureId } from "./FixtureId";
 import type { Orientation } from "./Orientation";
+import type { PositionLimits } from "./PositionLimits";
 import type { UniverseId } from "./UniverseId";
 
 export type PatchedFixture = { id: FixtureId, name: string, definition: DefinitionKey, mode: string, universe: UniverseId, 
 /**
  * First DMX address, 1-based (1..=512).
  */
-address: number, orientation: Orientation, calibration: ColorCalibration | null, };
+address: number, orientation: Orientation, calibration: ColorCalibration | null, 
+/**
+ * Where the lights may point: whatever plays, the pan and tilt are held
+ * inside (degrees, as in the scenes: after the orientation).
+ */
+position_limits: PositionLimits | null, };

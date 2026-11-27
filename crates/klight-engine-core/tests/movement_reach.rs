@@ -49,8 +49,8 @@ fn reach(show: &Show, m: &MovementEffect) -> MovementReach {
 fn spots_give_their_range_and_their_names_in_group_order() {
     let show = test_show();
     let r = reach(&show, &circle(G_SPOTS, 0.0, 90.0));
-    assert_eq!(r.pan_limit, Some(SPOT_PAN));
-    assert_eq!(r.tilt_limit, Some(SPOT_TILT));
+    assert_eq!(r.pan_limit, Some((-SPOT_PAN, SPOT_PAN)));
+    assert_eq!(r.tilt_limit, Some((-SPOT_TILT, SPOT_TILT)));
     assert!(!r.clipped);
     let names: Vec<_> = r.heads.iter().map(|h| (h.name.as_str(), h.moves)).collect();
     assert_eq!(names, [("Spot 1", true), ("Spot 2", true)]);
@@ -101,9 +101,81 @@ fn swapped_axes_take_the_range_of_the_other_axis() {
     let mut m = circle(G_SPOTS, 0.0, 90.0);
     m.width = 300.0;
     let r = reach(&show, &m);
-    assert_eq!(r.pan_limit, Some(SPOT_TILT));
-    assert_eq!(r.tilt_limit, Some(SPOT_TILT));
+    assert_eq!(r.pan_limit, Some((-SPOT_TILT, SPOT_TILT)));
+    assert_eq!(r.tilt_limit, Some((-SPOT_TILT, SPOT_TILT)));
     assert!(r.clipped);
+}
+
+const LIMITS: PositionLimits = PositionLimits {
+    pan_min: -90.0,
+    pan_max: 60.0,
+    tilt_min: -20.0,
+    tilt_max: 30.0,
+};
+
+fn limited(limits: Option<PositionLimits>, fixtures: &[FixtureId]) -> Show {
+    let mut show = test_show();
+    for f in &mut show.fixtures {
+        if fixtures.contains(&f.id) {
+            f.position_limits = limits;
+        }
+    }
+    show
+}
+
+#[test]
+fn the_position_limits_of_the_lights_are_what_they_reach() {
+    let show = limited(Some(LIMITS), &[SPOT1, SPOT2]);
+    let r = reach(&show, &circle(G_SPOTS, 0.0, 30.0));
+    assert_eq!(r.pan_limit, Some((-90.0, 60.0)));
+    assert_eq!(r.tilt_limit, Some((-20.0, 30.0)));
+    assert!(!r.clipped, "a circle of 45 by 15 degrees fits");
+}
+
+#[test]
+fn a_shape_beyond_a_position_limit_is_clipped_on_that_side_only() {
+    let show = limited(Some(LIMITS), &[SPOT1, SPOT2]);
+    // Tilt from -25 to +25: past the -20 below.
+    let mut m = circle(G_SPOTS, 0.0, 50.0);
+    assert!(reach(&show, &m).clipped);
+    // Shifted up, from -15 to +35: past the +30 above instead.
+    m.center_tilt = 10.0;
+    assert!(reach(&show, &m).clipped);
+    // From -7 to +17: inside both.
+    m.height = 24.0;
+    m.center_tilt = 5.0;
+    assert!(!reach(&show, &m).clipped);
+    // On the pan: 60° at most to one side, 90° to the other.
+    let mut wide = circle(G_SPOTS, 0.0, 10.0);
+    wide.width = 140.0;
+    assert!(reach(&show, &wide).clipped, "+70 is past +60");
+    wide.center_pan = -15.0;
+    assert!(!reach(&show, &wide).clipped, "-85 to +55 fits");
+}
+
+#[test]
+fn the_narrowest_limits_of_the_heads_are_the_reach_of_the_group() {
+    // Only Spot 1 is limited: the group reaches what both do.
+    let show = limited(Some(LIMITS), &[SPOT1]);
+    let r = reach(&show, &circle(G_SPOTS, 0.0, 30.0));
+    assert_eq!(r.pan_limit, Some((-90.0, 60.0)));
+    assert_eq!(r.tilt_limit, Some((-20.0, 30.0)));
+}
+
+#[test]
+fn the_limits_are_those_of_the_show_even_when_the_axes_are_swapped() {
+    let mut show = limited(Some(LIMITS), &[SPOT1]);
+    show.fixtures
+        .iter_mut()
+        .find(|f| f.id == SPOT1)
+        .unwrap()
+        .orientation
+        .swap_pan_tilt = true;
+    // The pan of the show goes to the tilt channel (135° each way), cut by
+    // the pan limits of the show.
+    let r = reach(&show, &circle(G_SPOTS, 0.0, 30.0));
+    assert_eq!(r.pan_limit, Some((-90.0, 60.0)));
+    assert_eq!(r.tilt_limit, Some((-20.0, 30.0)));
 }
 
 #[test]
@@ -126,7 +198,7 @@ fn heads_without_pan_or_tilt_are_listed_but_give_no_limit() {
     let r = reach(&show, &circle(GroupId(9), 0.0, 90.0));
     let moves: Vec<_> = r.heads.iter().map(|h| (h.name.as_str(), h.moves)).collect();
     assert_eq!(moves, [("Dim 1", false), ("Spot 1", true)]);
-    assert_eq!(r.pan_limit, Some(SPOT_PAN));
+    assert_eq!(r.pan_limit, Some((-SPOT_PAN, SPOT_PAN)));
 
     let dimmers = reach(&show, &circle(G_DIMMERS, 0.0, 400.0));
     assert_eq!(dimmers.pan_limit, None);

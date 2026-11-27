@@ -10,7 +10,8 @@
 
 use klight_engine_core::compile::CompiledShow;
 use klight_engine_core::effects::{
-    head_phase, matrix_cell_look, matrix_phase, movement_path_point, movement_point,
+    head_mirrored, head_phase, head_spread, matrix_cell_look, matrix_phase, movement_path_point,
+    movement_point,
 };
 use klight_engine_core::preview::{movement_reach, scene_channels};
 use klight_engine_core::scene_edit;
@@ -434,7 +435,8 @@ impl MovementView {
                     e,
                     turns,
                     head_phase(e.phase_spread, i, n),
-                    e.mirror.mirrors(i, n),
+                    head_mirrored(e, i, n),
+                    head_spread(i, n),
                 );
                 [p, t]
             })

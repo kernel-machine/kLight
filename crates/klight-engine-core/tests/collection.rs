@@ -82,6 +82,7 @@ fn add_effects(e: &mut Engine) {
         algorithm: MatrixAlgorithm::Chase {
             color: Color::RED,
             background: Color::BLACK,
+            width: 1,
         },
         period: TimeValue::Ms(400),
         direction: Direction::Forward,

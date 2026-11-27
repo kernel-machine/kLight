@@ -376,6 +376,7 @@ pub fn overlapping(
         address,
         orientation: Default::default(),
         calibration: None,
+        position_limits: None,
     };
     validate::conflicts_for(show, &probe, size)
         .into_iter()
@@ -509,10 +510,11 @@ pub struct MovementHead {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct MovementReach {
     pub heads: Vec<MovementHead>,
-    /// Pan every head that gives its range can reach: from `-pan_limit` to
-    /// `+pan_limit`. `None` if no head gives one.
-    pub pan_limit: Option<f32>,
-    pub tilt_limit: Option<f32>,
+    /// Pan every head that gives its range can reach, as (lowest, highest):
+    /// the range of the head cut by the position limits of its fixture.
+    /// `None` if no head gives a range.
+    pub pan_limit: Option<(f32, f32)>,
+    pub tilt_limit: Option<(f32, f32)>,
     /// Part of the shape is beyond what some head reaches: there the head
     /// stops at its limit and the shape is flattened. For a relative effect,
     /// as if the scenes left the heads at the center of their range.
@@ -787,6 +789,7 @@ mod tests {
                 address: *a,
                 orientation: Default::default(),
                 calibration: None,
+                position_limits: None,
             });
         }
         s

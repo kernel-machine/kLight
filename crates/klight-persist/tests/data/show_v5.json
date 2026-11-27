@@ -209,6 +209,140 @@
           "ms": 2000
         }
       }
+    },
+    {
+      "id": 6,
+      "name": "Hexagon",
+      "kind": {
+        "type": "movement_effect",
+        "group": 1,
+        "shape": {
+          "type": "polygon",
+          "sides": 6
+        },
+        "center_pan": 0.0,
+        "center_tilt": 20.0,
+        "width": 90.0,
+        "height": 30.0,
+        "period": {
+          "beats": 4.0
+        },
+        "phase_spread": 360.0,
+        "direction": "Forward",
+        "rotation": 30.0,
+        "mirror": "halves",
+        "run_mode": "PingPong",
+        "relative": true,
+        "fade_in": {
+          "beats": 2.0
+        },
+        "fade_out": {
+          "ms": 1500
+        }
+      }
+    },
+    {
+      "id": 7,
+      "name": "Ripple",
+      "kind": {
+        "type": "movement_effect",
+        "group": 1,
+        "shape": {
+          "type": "sine",
+          "periods": 3
+        },
+        "center_pan": 0.0,
+        "center_tilt": 20.0,
+        "width": 90.0,
+        "height": 30.0,
+        "period": {
+          "beats": 4.0
+        },
+        "phase_spread": 360.0,
+        "direction": "Forward",
+        "rotation": 30.0,
+        "mirror": "halves",
+        "run_mode": "PingPong",
+        "relative": true,
+        "fade_in": {
+          "beats": 2.0
+        },
+        "fade_out": {
+          "ms": 1500
+        }
+      }
+    },
+    {
+      "id": 8,
+      "name": "Searchlight",
+      "kind": {
+        "type": "movement_effect",
+        "group": 1,
+        "shape": {
+          "type": "fan",
+          "hold": 15
+        },
+        "center_pan": 0.0,
+        "center_tilt": 20.0,
+        "width": 90.0,
+        "height": 30.0,
+        "period": {
+          "beats": 4.0
+        },
+        "phase_spread": 360.0,
+        "direction": "Forward",
+        "rotation": 30.0,
+        "mirror": "halves",
+        "run_mode": "PingPong",
+        "relative": true,
+        "fade_in": {
+          "beats": 2.0
+        },
+        "fade_out": {
+          "ms": 1500
+        }
+      }
+    },
+    {
+      "id": 9,
+      "name": "Ring",
+      "kind": {
+        "type": "matrix_effect",
+        "group": 1,
+        "algorithm": {
+          "type": "chase",
+          "color": {
+            "r": 1.0,
+            "g": 0.0,
+            "b": 0.0
+          },
+          "background": {
+            "r": 0.0,
+            "g": 0.0,
+            "b": 0.0
+          },
+          "width": 3
+        },
+        "period": {
+          "ms": 2000
+        },
+        "axis": "radial"
+      }
+    },
+    {
+      "id": 10,
+      "name": "Spectrum",
+      "kind": {
+        "type": "matrix_effect",
+        "group": 1,
+        "algorithm": {
+          "type": "rainbow",
+          "spread": 2.0
+        },
+        "period": {
+          "ms": 2000
+        }
+      }
     }
   ],
   "virtual_console": {

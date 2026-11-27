@@ -57,6 +57,11 @@ pub struct LogicalChannel {
     pub merge: Merge,
     pub role: Role,
     pub default: u16,
+    /// The lowest and highest value the channel may be given (16 bit): the
+    /// position limits of the fixture on its pan and tilt channels, all the
+    /// range on the others.
+    pub min: u16,
+    pub max: u16,
     pub fadeable: bool,
     /// Index into `CompiledShow::fixtures`.
     pub fixture: u32,
@@ -187,6 +192,9 @@ pub struct MoveHead {
     pub phase: f32,
     /// It draws the shape mirrored left to right.
     pub mirrored: bool,
+    /// Its place among the heads, -1 (first) to 1 (last): the side a fan
+    /// opens it towards.
+    pub spread: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -195,7 +203,7 @@ pub struct CompiledMovement {
     pub effect: MovementEffect,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct MatrixCell {
     pub x: u16,
     pub y: u16,
@@ -203,6 +211,16 @@ pub struct MatrixCell {
     pub green: u32,
     pub blue: u32,
     pub white: u32,
+    pub amber: u32,
+    pub cyan: u32,
+    pub magenta: u32,
+    pub yellow: u32,
+    /// Color wheel channel, and the colors on it with their DMX values
+    /// (`wheel` is empty on a light without one).
+    pub wheel_channel: u32,
+    pub wheel: Vec<(klight_model::Color, u8)>,
+    /// Calibration of the fixture the cell belongs to.
+    pub calibration: Option<ColorCalibration>,
     /// Dimmer or virtual dimmer of the head.
     pub intensity: u32,
 }
@@ -308,7 +326,24 @@ impl CompiledShow {
             let base = f.address.saturating_sub(1);
             let universe = u16::try_from(universe).unwrap_or(u16::MAX);
 
+            // The bounds the position limits give the pan and tilt channels.
+            let (pan_bounds, tilt_bounds) =
+                f.position_limits
+                    .map_or(((0, u16::MAX), (0, u16::MAX)), |l| {
+                        klight_fixtures::limits_to_dmx(
+                            f.orientation,
+                            &l,
+                            profile.physical.pan_max_deg,
+                            profile.physical.tilt_max_deg,
+                        )
+                    });
+
             for slot in &profile.slots {
+                let (min, max) = match slot.attribute {
+                    Attribute::Pan => pan_bounds,
+                    Attribute::Tilt => tilt_bounds,
+                    _ => (0, u16::MAX),
+                };
                 let role = if slot.attribute == Attribute::Dimmer {
                     Role::Dimmer
                 } else if slot.attribute.is_additive_color() {
@@ -327,6 +362,8 @@ impl CompiledShow {
                     },
                     role,
                     default: slot.default,
+                    min,
+                    max,
                     fadeable: slot.attribute.is_fadeable(),
                     fixture: fixture_idx,
                     attribute: slot.attribute,
@@ -352,6 +389,8 @@ impl CompiledShow {
                         merge: Merge::Htp,
                         role: Role::VirtualDimmer,
                         default: u16::MAX,
+                        min: 0,
+                        max: u16::MAX,
                         fadeable: true,
                         fixture: fixture_idx,
                         attribute: Attribute::Dimmer,
@@ -971,7 +1010,8 @@ impl CompiledShow {
                         tilt_range: f.profile.physical.tilt_max_deg,
                         orientation: f.orientation,
                         phase: crate::effects::head_phase(m.phase_spread, usize::from(order), n),
-                        mirrored: m.mirror.mirrors(usize::from(order), n),
+                        mirrored: crate::effects::head_mirrored(m, usize::from(order), n),
+                        spread: crate::effects::head_spread(usize::from(order), n),
                     })
                 });
                 (fi, head, moving)
@@ -1010,6 +1050,23 @@ fn compile_matrix(
                 .get(usize::from(member.head))
                 .map_or(NO_CHANNEL, |h| h.vdim)
         };
+        let wheel_channel = find(Attribute::ColorWheel);
+        let wheel = if wheel_channel == NO_CHANNEL {
+            Vec::new()
+        } else {
+            show.definitions
+                .get(f.definition)
+                .and_then(|def| {
+                    Converter {
+                        def,
+                        profile: &f.profile,
+                        orientation: f.orientation,
+                        calibration: f.calibration.as_ref(),
+                    }
+                    .wheel_options(member.head)
+                })
+                .unwrap_or_default()
+        };
         cells.push(MatrixCell {
             x: pos.x,
             y: pos.y,
@@ -1017,6 +1074,13 @@ fn compile_matrix(
             green: find(Attribute::Green),
             blue: find(Attribute::Blue),
             white: find(Attribute::White),
+            amber: find(Attribute::Amber),
+            cyan: find(Attribute::Cyan),
+            magenta: find(Attribute::Magenta),
+            yellow: find(Attribute::Yellow),
+            wheel_channel,
+            wheel,
+            calibration: f.calibration,
             intensity,
         });
     }
