@@ -78,6 +78,7 @@ with `cargo tauri icon src-tauri/icons/icon.png`).
 ```
 cargo test --workspace                                   # unit, property, golden, chaos, alloc
 cargo run -p klight-sim --release --bin klight-soak -- --minutes 30
+cargo run -p klight-sim --release --bin klight-soak -- --minutes 1 --inject-slow-tick-ms 1  # must fail
 cd ui && npm test && npm run check                       # Vitest + type check
 cd ui && npm run build && PW_CHANNEL=chrome npm run e2e  # Playwright (engine must be built)
 cd fuzz && cargo +nightly fuzz run qxf                   # also: show_file, api_message, osc, midi
