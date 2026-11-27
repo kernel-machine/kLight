@@ -265,7 +265,12 @@ consoles (grandMA, MagicQ), with a simple interface.
   are its own or, if it has none, the chaser's. `ChaserGoTo` jumps a chaser to
   a step (its place in the show's list, as the runtime position), starting it if
   needed: the step fades in with its own fade and lasts its full hold from then.
-- `CueList` — cues with times, Go/Back/Pause, current cue.
+- `CueList` — cues with times, Go/Back/Pause, current cue. Cues play in
+  list order; their numbers are labels that stay increasing: a cue inserted
+  between two takes the roundest number between them (a whole number if there
+  is one, else tenths, else hundredths). Updating a cue from the programmer
+  follows the rules of adding values to a scene (same slot replaced, channels
+  set by hand that it writes released).
 - `MovementEffect` (EFX) — pan/tilt generators: circle, eight, line, square,
   lissajous; size, speed, phase distributed over the group, and:
   - **rotation** of the shape around its center (degrees, counterclockwise);
@@ -285,7 +290,16 @@ consoles (grandMA, MagicQ), with a simple interface.
   where the lights of the group reach and warns when the shape goes beyond
   (for a relative effect, as if the scenes left the heads in the middle).
 - `MatrixEffect` — algorithms over a group with a 2D grid: solid color,
-  chase, waves, gradients, text (in Rust, in the core).
+  chase, waves, gradients, text, fill (the grid fills with the color over the
+  cycle), twinkle (a share of the cells lit at random, a new draw eight times
+  per cycle, the same every time) (in Rust, in the core), and:
+  - **axis**: chase, wave, gradient and fill move across the columns or
+    across the rows; text always scrolls left;
+  - **run mode**: loop, single shot (one cycle, then the effect stops),
+    ping-pong;
+  - **fade in / fade out of the level**: from nothing when it starts, back to
+    nothing when the matrix itself is stopped (also at the end of a single
+    shot).
 - `Collection` — scenes, movement effects and matrix effects played all
   together. It cannot contain functions that contain others (chasers, cue lists,
   collections): such a reference is ignored with a warning, and a function listed

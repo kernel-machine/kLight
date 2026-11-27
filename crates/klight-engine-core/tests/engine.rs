@@ -825,6 +825,10 @@ fn chaser_with_effect_steps() -> klight_engine_core::Engine {
         },
         period: TimeValue::Ms(400),
         direction: Direction::Forward,
+        axis: MatrixAxis::Horizontal,
+        run_mode: klight_model::function::RunMode::Loop,
+        fade_in: TimeValue::ZERO,
+        fade_out: TimeValue::ZERO,
     });
     let chaser = FunctionKind::Chaser(Chaser {
         steps: [1, 30, 40]
@@ -1076,6 +1080,10 @@ fn matrix_chase_lights_one_column() {
                     },
                     period: TimeValue::Ms(400),
                     direction: Direction::Forward,
+                    axis: MatrixAxis::Horizontal,
+                    run_mode: klight_model::function::RunMode::Loop,
+                    fade_in: TimeValue::ZERO,
+                    fade_out: TimeValue::ZERO,
                 }),
             },
         },

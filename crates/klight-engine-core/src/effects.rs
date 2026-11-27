@@ -5,7 +5,7 @@ use std::f32::consts::TAU;
 
 use klight_fixtures::convert::{degrees_to_dmx16, dmx16_to_degrees, unit_to16};
 use klight_model::function::{Direction, MovementShape, RunMode};
-use klight_model::{Color, MatrixAlgorithm, MovementEffect, TimeValue};
+use klight_model::{Color, MatrixAlgorithm, MatrixAxis, MatrixEffect, MovementEffect, TimeValue};
 
 use crate::compile::{CompiledMatrix, CompiledMovement, LogicalChannel, NO_CHANNEL};
 use crate::music::{beats_to_fixed, MusicClock};
@@ -135,6 +135,19 @@ pub fn movement_size(
     elapsed_us: u64,
     remaining_us: Option<u64>,
 ) -> f32 {
+    effect_size(e.fade_in, e.fade_out, bpm, elapsed_us, remaining_us)
+}
+
+/// How much of an effect shows (0..=1) `elapsed_us` after it started, with
+/// `remaining_us` of its fade out left if it is stopping: the size of a
+/// movement, the level of a matrix.
+pub fn effect_size(
+    fade_in: TimeValue,
+    fade_out: TimeValue,
+    bpm: f64,
+    elapsed_us: u64,
+    remaining_us: Option<u64>,
+) -> f32 {
     let part = |num: u64, den: u64| {
         if den == 0 {
             1.0
@@ -142,8 +155,8 @@ pub fn movement_size(
             (num.min(den) as f64 / den as f64) as f32
         }
     };
-    let grown = part(elapsed_us, e.fade_in.to_micros(bpm));
-    let left = remaining_us.map_or(1.0, |r| part(r, e.fade_out.to_micros(bpm)));
+    let grown = part(elapsed_us, fade_in.to_micros(bpm));
+    let left = remaining_us.map_or(1.0, |r| part(r, fade_out.to_micros(bpm)));
     grown.min(left)
 }
 
@@ -275,15 +288,70 @@ fn text_pixel(text: &str, width: u16, height: u16, offset: u32, x: u16, y: u16) 
     glyph_pixel(c, col % 4, u32::from(row))
 }
 
-/// Phase (0..1) of a matrix effect at cycle position `turns`.
-pub fn matrix_phase(turns: f64, direction: Direction) -> f32 {
+/// Just before the end of a cycle: the last frame of a single shot, the turn
+/// of a ping-pong (a phase of 1 would be the start again).
+const LAST: f64 = 1.0 - 1e-9;
+
+/// Phase (0..1) of a matrix effect at cycle position `turns`: a single shot
+/// stays on its last frame after one cycle, ping-pong plays every other cycle
+/// backwards.
+pub fn matrix_phase(turns: f64, direction: Direction, run_mode: RunMode) -> f32 {
     let sign = if direction == Direction::Backward {
         -1.0
     } else {
         1.0
     };
+    let turns = match run_mode {
+        RunMode::Loop => turns,
+        RunMode::SingleShot => turns.clamp(0.0, LAST),
+        RunMode::PingPong => {
+            let u = turns.rem_euclid(2.0);
+            (if u > 1.0 { 2.0 - u } else { u }).min(LAST)
+        }
+    };
     ((turns * sign).rem_euclid(1.0)) as f32
 }
+
+/// Color of the cell (x, y) of a `width` x `height` grid for matrix effect
+/// `e` at `phase`, along the effect's axis. Shared with the UI preview.
+pub fn matrix_effect_color(
+    e: &MatrixEffect,
+    width: u16,
+    height: u16,
+    x: u16,
+    y: u16,
+    phase: f32,
+) -> Color {
+    let along_rows = e.axis == MatrixAxis::Vertical
+        && matches!(
+            e.algorithm,
+            MatrixAlgorithm::Chase { .. }
+                | MatrixAlgorithm::Wave { .. }
+                | MatrixAlgorithm::Gradient { .. }
+                | MatrixAlgorithm::Fill { .. }
+        );
+    if along_rows {
+        matrix_cell_color(&e.algorithm, height, width, y, x, phase)
+    } else {
+        matrix_cell_color(&e.algorithm, width, height, x, y, phase)
+    }
+}
+
+/// A number in 0..1 for a cell and a draw, the same every time.
+fn draw(x: u16, y: u16, n: u32) -> f32 {
+    let mut h = u32::from(x).wrapping_mul(0x9E37_79B1)
+        ^ u32::from(y).wrapping_mul(0x85EB_CA77)
+        ^ n.wrapping_mul(0xC2B2_AE3D);
+    h ^= h >> 16;
+    h = h.wrapping_mul(0x7FEB_352D);
+    h ^= h >> 15;
+    h = h.wrapping_mul(0x846C_A68B);
+    h ^= h >> 16;
+    (f64::from(h) / f64::from(u32::MAX)) as f32
+}
+
+/// Draws per cycle of a twinkle.
+const TWINKLE_DRAWS: f32 = 8.0;
 
 /// Color (linear RGB, clamped) of the grid cell (x, y) at `phase`.
 /// Shared with the UI preview.
@@ -326,6 +394,26 @@ pub fn matrix_cell_color(
                 Color::BLACK
             }
         }
+        MatrixAlgorithm::Fill { color, background } => {
+            // From no column lit to all of them over the cycle.
+            if xf < (phase * (w + 1.0)).floor() {
+                *color
+            } else {
+                *background
+            }
+        }
+        MatrixAlgorithm::Twinkle {
+            color,
+            background,
+            density,
+        } => {
+            let n = (phase * TWINKLE_DRAWS).floor() as u32;
+            if draw(x, y, n) < density.clamp(0.0, 1.0) {
+                *color
+            } else {
+                *background
+            }
+        }
     }
     .clamped()
 }
@@ -337,9 +425,10 @@ pub fn render_matrix(
     channels: &[LogicalChannel],
     layer: &mut Layer,
 ) {
-    let phase = matrix_phase(turns, m.direction);
+    let e = &m.effect;
+    let phase = matrix_phase(turns, e.direction, e.run_mode);
     for cell in &m.cells {
-        let color = matrix_cell_color(&m.algorithm, m.width, m.height, cell.x, cell.y, phase);
+        let color = matrix_effect_color(e, m.width, m.height, cell.x, cell.y, phase);
         write(layer, channels, cell.red, unit_to16(color.r));
         write(layer, channels, cell.green, unit_to16(color.g));
         write(layer, channels, cell.blue, unit_to16(color.b));

@@ -297,7 +297,7 @@ pub struct Playback {
     pub paused_since: Option<u64>,
     /// Times scenes of a collection were started together.
     pub groups: u64,
-    /// A movement effect stopped with a fade out: when it ends.
+    /// A movement or matrix effect stopped with a fade out: when it ends.
     pub effect_until: Option<u64>,
 }
 
@@ -441,20 +441,29 @@ impl Playback {
     pub fn stop(&mut self, ctx: &Ctx<'_>) -> bool {
         self.stopping = true;
         self.release_all(ctx, None);
-        match &self.kind {
-            // A movement may shrink back to its center first.
-            PlaybackKind::Movement(m) => {
-                let out = m.effect.fade_out.to_micros(ctx.music.bpm());
-                if out == 0 {
-                    return true;
-                }
-                self.effect_until = Some(ctx.now_us.saturating_add(out));
-                false
+        // An effect may fade out first; otherwise it has nothing to fade.
+        if let Some((_, _, fade_out)) = self.effect_timing() {
+            let out = fade_out.to_micros(ctx.music.bpm());
+            if out == 0 {
+                return true;
             }
-            // Matrix effects have nothing to fade out.
-            PlaybackKind::Matrix(_) => true,
-            PlaybackKind::Collection(_) => self.instances.is_empty(),
-            _ => false,
+            self.effect_until = Some(ctx.now_us.saturating_add(out));
+            return false;
+        }
+        matches!(self.kind, PlaybackKind::Collection(_)) && self.instances.is_empty()
+    }
+
+    /// Cycle, run mode and fade out of a movement or matrix effect played on
+    /// its own.
+    pub fn effect_timing(&self) -> Option<(TimeValue, RunMode, TimeValue)> {
+        match &self.kind {
+            PlaybackKind::Movement(m) => {
+                Some((m.effect.period, m.effect.run_mode, m.effect.fade_out))
+            }
+            PlaybackKind::Matrix(m) => {
+                Some((m.effect.period, m.effect.run_mode, m.effect.fade_out))
+            }
+            _ => None,
         }
     }
 
@@ -569,12 +578,11 @@ impl Playback {
     /// changed (step/cue change, end).
     pub fn advance(&mut self, pool: &mut Vec<SceneInstance>, ctx: &Ctx<'_>) -> bool {
         let mut changed = false;
-        // A single shot movement stops after one cycle; a fade out ends.
-        if let PlaybackKind::Movement(m) = &self.kind {
+        // A single shot effect stops after one cycle; a fade out ends.
+        if let Some((period, RunMode::SingleShot, _)) = self.effect_timing() {
             if !self.stopping
-                && m.effect.run_mode == RunMode::SingleShot
                 && cycle_turns(
-                    m.effect.period,
+                    period,
                     self.started_us,
                     self.started_beat,
                     ctx.now_us,

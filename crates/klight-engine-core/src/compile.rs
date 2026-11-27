@@ -12,7 +12,7 @@ use klight_model::UNIVERSE_SIZE;
 use klight_model::{
     attributes::{kind_of_attribute, AttributeKind},
     validate, Attribute, AttributeValue, ChannelRef, Chaser, Collection, CueFollow, CueList,
-    FixtureId, FunctionCategory, FunctionId, FunctionKind, MatrixAlgorithm, MovementEffect,
+    FixtureId, FunctionCategory, FunctionId, FunctionKind, MatrixEffect, MovementEffect,
     Orientation, Scene, SceneValue, Show, Spread, Target, TimeValue, Timing, UniverseId,
     ValueSource,
 };
@@ -212,9 +212,7 @@ pub struct CompiledMatrix {
     pub cells: Vec<MatrixCell>,
     pub width: u16,
     pub height: u16,
-    pub algorithm: MatrixAlgorithm,
-    pub period: TimeValue,
-    pub direction: Direction,
+    pub effect: MatrixEffect,
 }
 
 /// What a collection plays, all together.
@@ -1026,8 +1024,6 @@ fn compile_matrix(
         cells,
         width: width.max(1),
         height,
-        algorithm: m.algorithm.clone(),
-        period: m.period,
-        direction: m.direction,
+        effect: m.clone(),
     })
 }

@@ -6,7 +6,8 @@ use serde::{Deserialize, Serialize};
 use crate::attributes::{AttributeValue, Color};
 use crate::fixture_def::{Attribute, CapabilityKind, ChannelByte};
 use crate::function::{
-    ChannelRef, Chaser, FunctionKind, Scene, SceneValue, Target, TimeValue, ValueSource,
+    ChannelRef, Chaser, Cue, CueFollow, CueList, FunctionKind, Scene, SceneValue, Target,
+    TimeValue, ValueSource,
 };
 use crate::ids::{FixtureId, FunctionId, UniverseId};
 use crate::patch::{PatchedFixture, UNIVERSE_SIZE};
@@ -634,6 +635,63 @@ pub fn chaser_times(chaser: &Chaser, bpm: f64) -> ChaserTimes {
     }
 }
 
+/// The times of a cue at a tempo, in milliseconds, as the engine plays them.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct CueTime {
+    pub delay_ms: f64,
+    pub fade_in_ms: f64,
+    pub fade_out_ms: f64,
+    /// When it goes on to the next cue by itself, from its start; `None`
+    /// if it waits for Go.
+    pub follow_ms: Option<f64>,
+}
+
+/// The times of every cue of a cue list at `bpm`.
+pub fn cue_list_times(list: &CueList, bpm: f64) -> Vec<CueTime> {
+    let ms = |t: TimeValue| t.to_micros(bpm) as f64 / 1000.0;
+    list.cues
+        .iter()
+        .map(|c| CueTime {
+            delay_ms: ms(c.timing.delay),
+            fade_in_ms: ms(c.timing.fade_in),
+            fade_out_ms: ms(c.timing.fade_out),
+            follow_ms: match c.follow {
+                CueFollow::Auto { after } => Some(ms(after)),
+                CueFollow::Manual => None,
+            },
+        })
+        .collect()
+}
+
+/// The number for a cue inserted at `at` in `cues`: the roundest number
+/// between the cues around it (a whole number if there is one, else tenths,
+/// else hundredths, else half way), so that cues stay in increasing order.
+/// After the last cue, the next whole number; in an empty list, 1.
+pub fn insert_cue_number(cues: &[Cue], at: usize) -> f32 {
+    let lo = at
+        .checked_sub(1)
+        .and_then(|i| cues.get(i))
+        .map_or(0.0, |c| c.number);
+    let hi = cues.get(at).map(|c| c.number);
+    let Some(hi) = hi.filter(|h| h.is_finite()) else {
+        return if lo.is_finite() {
+            lo.floor() + 1.0
+        } else {
+            1.0
+        };
+    };
+    for step in [1.0_f32, 0.1, 0.01] {
+        // The first multiple of `step` above `lo` (rounded, against 0.1 + 0.2).
+        let n = ((lo / step).floor() + 1.0) * step;
+        let n = (n / step).round() * step;
+        if n > lo && n < hi {
+            return n;
+        }
+    }
+    (lo + hi) / 2.0
+}
+
 /// The look of every fixture of a scene, in the order of its lights.
 pub fn scene_light_looks(show: &Show, scene: &Scene) -> Vec<LightLook> {
     let lights = scene_lights(show, scene);
@@ -1232,5 +1290,58 @@ mod tests {
         assert_eq!(function_color(&s, FunctionId(3)), Some(blue));
         assert_eq!(function_color(&s, FunctionId(4)), None);
         assert_eq!(function_color(&s, FunctionId(9)), None);
+    }
+
+    fn cues(numbers: &[f32]) -> Vec<Cue> {
+        numbers
+            .iter()
+            .map(|&number| Cue {
+                number,
+                name: String::new(),
+                values: Vec::new(),
+                timing: crate::function::Timing::default(),
+                follow: CueFollow::Manual,
+                move_in_black: None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn inserted_cues_take_the_roundest_number_in_between() {
+        let n = |numbers: &[f32], at| insert_cue_number(&cues(numbers), at);
+        assert_eq!(n(&[], 0), 1.0);
+        assert_eq!(n(&[1.0, 2.0, 3.0], 3), 4.0, "after the last");
+        assert_eq!(n(&[1.5], 1), 2.0);
+        assert_eq!(n(&[1.0, 5.0], 1), 2.0, "a whole number when there is one");
+        assert_eq!(n(&[1.0, 2.0], 1), 1.1);
+        assert_eq!(n(&[1.1, 1.2], 1), 1.11);
+        assert_eq!(n(&[1.0, 1.001], 1), 1.0005, "half way at last");
+        assert_eq!(n(&[1.0], 0), 0.1, "before the first");
+        assert_eq!(n(&[3.0], 0), 1.0);
+        // Never out of order.
+        let list = [0.2, 0.3, 0.7, 1.0, 1.05, 2.0, 2.01, 10.0];
+        for at in 0..=list.len() {
+            let v = n(&list, at);
+            assert!(at == 0 || v > list[at - 1], "{at}: {v}");
+            assert!(at == list.len() || v < list[at], "{at}: {v}");
+        }
+    }
+
+    #[test]
+    fn cue_times_follow_the_tempo() {
+        let mut list = CueList {
+            cues: cues(&[1.0, 2.0]),
+            move_in_black: false,
+        };
+        list.cues[0].timing.fade_in = TimeValue::Beats(2.0);
+        list.cues[0].timing.delay = TimeValue::Ms(250);
+        list.cues[1].follow = CueFollow::Auto {
+            after: TimeValue::Beats(4.0),
+        };
+        let t = cue_list_times(&list, 120.0);
+        assert_eq!(t[0].fade_in_ms, 1000.0);
+        assert_eq!(t[0].delay_ms, 250.0);
+        assert_eq!(t[0].follow_ms, None);
+        assert_eq!(t[1].follow_ms, Some(2000.0));
     }
 }

@@ -4,9 +4,11 @@
 //
 // Call `initCore()` once before using anything else.
 
-import init, { initSync, ShowView, MovementView, MatrixView, linear_to_hex, hex_to_linear, set_scene_channel, max_sequence_colors, color_sequence_json, beat_flash_bits, widget_light_code, chaser_step_types, beat_choices, collection_member_types } from './wasm/klight_wasm.js';
+import init, { initSync, ShowView, MovementView, MatrixView, insert_cue_number, linear_to_hex, hex_to_linear, set_scene_channel, max_sequence_colors, color_sequence_json, beat_flash_bits, widget_light_code, chaser_step_types, beat_choices, collection_member_types } from './wasm/klight_wasm.js';
 import type {
   ChaserTimes,
+  Cue,
+  CueTime,
   CoveredValue,
   LightLook,
   ActiveFunction,
@@ -161,6 +163,20 @@ export function chaserTimes(show: Show, functionId: number, bpm: number): Chaser
 export function movementReach(show: Show, effect: MovementEffect): MovementReach {
   return JSON.parse(view(show).view.movement_reach(JSON.stringify(effect))) as MovementReach;
 }
+
+/** The times of every cue of a cue list at `bpm`, as the engine plays them; from the core. */
+export function cueListTimes(show: Show, functionId: number, bpm: number): CueTime[] {
+  const json = view(show).view.cue_list_times(functionId, bpm);
+  return json ? (JSON.parse(json) as CueTime[]) : [];
+}
+
+/** The values of a cue updated with `incoming` (the programmer), as values added to a scene; from the core. */
+export function updateCueValues(show: Show, values: SceneValue[], incoming: SceneValue[]): SceneValue[] {
+  return JSON.parse(view(show).view.update_cue_values(JSON.stringify(values), JSON.stringify(incoming))) as SceneValue[];
+}
+
+/** The number for a cue inserted at `at`: the roundest number between its neighbours; from the core. */
+export const insertCueNumber = (cues: Cue[], at: number): number => insert_cue_number(JSON.stringify(cues), at);
 
 /** Color and intensity the scene gives each of its fixtures (the last value wins), from the core. */
 export function sceneLightLooks(show: Show, functionId: number): LightLook[] {

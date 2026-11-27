@@ -10,7 +10,7 @@
 
 use klight_engine_core::compile::CompiledShow;
 use klight_engine_core::effects::{
-    head_phase, matrix_cell_color, matrix_phase, movement_path_point, movement_point,
+    head_phase, matrix_effect_color, matrix_phase, movement_path_point, movement_point,
 };
 use klight_engine_core::preview::{movement_reach, scene_channels};
 use klight_engine_core::scene_edit;
@@ -127,6 +127,25 @@ impl ShowView {
             return None;
         };
         Some(inspect::scene_light_looks(&self.show, scene))
+    }
+
+    pub fn cue_list_times_of(&self, id: u32, bpm: f64) -> Option<Vec<inspect::CueTime>> {
+        let klight_model::FunctionKind::CueList(list) = &self.show.function(FunctionId(id))?.kind
+        else {
+            return None;
+        };
+        Some(inspect::cue_list_times(list, bpm))
+    }
+
+    pub fn update_cue_values_of(&self, values: &str, incoming: &str) -> Result<String, String> {
+        let values: Vec<SceneValue> = parse(values, "cue values")?;
+        let incoming: Vec<SceneValue> = parse(incoming, "values")?;
+        Ok(to_json(&scene_edit::update_cue_values(
+            &self.show,
+            self.compiled(),
+            &values,
+            &incoming,
+        )))
     }
 
     pub fn movement_reach_of(&self, effect: &str) -> Result<inspect::MovementReach, String> {
@@ -274,6 +293,19 @@ impl ShowView {
         self.scene_light_looks_of(id).map(|l| to_json(&l))
     }
 
+    /// JSON `CueTime[]`: the times of every cue at `bpm`; undefined if the
+    /// function is not a cue list.
+    pub fn cue_list_times(&self, id: u32, bpm: f64) -> Option<String> {
+        self.cue_list_times_of(id, bpm).map(|t| to_json(&t))
+    }
+
+    /// JSON `SceneValue[]`: the values of a cue updated with `incoming`
+    /// (both JSON `SceneValue[]`), as values added to a scene.
+    pub fn update_cue_values(&self, values: &str, incoming: &str) -> Result<String, JsError> {
+        self.update_cue_values_of(values, incoming)
+            .map_err(|e| JsError::new(&e))
+    }
+
     /// JSON `MovementReach`: the heads a movement effect (JSON
     /// `MovementEffect`, possibly not saved yet) moves, how far they go and
     /// whether its shape goes beyond.
@@ -330,6 +362,25 @@ pub fn set_scene_channel(
     value: Option<u8>,
 ) -> Result<String, JsError> {
     set_scene_channel_json(values, fixture, channel, value).map_err(|e| JsError::new(&e))
+}
+
+// ---------------------------------------------------------------- cue lists
+
+/// As a JavaScript number with the same digits as the cue number (an `f32`
+/// widened as it is would read 1.100000023841858 instead of 1.1).
+fn insert_cue_number_json(cues: &str, at: u32) -> Result<f64, String> {
+    let cues: Vec<klight_model::Cue> = parse(cues, "cues")?;
+    let n = inspect::insert_cue_number(&cues, at as usize);
+    n.to_string()
+        .parse::<f64>()
+        .map_err(|e| format!("cue number {n}: {e}"))
+}
+
+/// The number for a cue inserted at `at` in `cues` (JSON `Cue[]`): the
+/// roundest number between its neighbours.
+#[wasm_bindgen]
+pub fn insert_cue_number(cues: &str, at: u32) -> Result<f64, JsError> {
+    insert_cue_number_json(cues, at).map_err(|e| JsError::new(&e))
 }
 
 // ---------------------------------------------------------------- movement
@@ -414,21 +465,22 @@ impl MatrixView {
         })
     }
 
-    /// Linear RGB of each cell (layout order): [r0, g0, b0, r1, ...].
+    /// Linear RGB of each cell (layout order) at cycle position `turns`,
+    /// counted from the start: [r0, g0, b0, r1, ...]. The preview repeats a
+    /// single shot: there `turns` wraps at 1.
     pub fn cell_colors(&self, turns: f64) -> Vec<f32> {
-        let phase = matrix_phase(turns, self.effect.direction);
+        let e = &self.effect;
+        let turns = match e.run_mode {
+            RunMode::SingleShot => turns.rem_euclid(1.0),
+            RunMode::Loop | RunMode::PingPong => turns,
+        };
+        let phase = matrix_phase(turns, e.direction, e.run_mode);
         self.layout
             .positions
             .iter()
             .flat_map(|p| {
-                let c = matrix_cell_color(
-                    &self.effect.algorithm,
-                    self.layout.width,
-                    self.layout.height,
-                    p.x,
-                    p.y,
-                    phase,
-                );
+                let c =
+                    matrix_effect_color(e, self.layout.width, self.layout.height, p.x, p.y, phase);
                 [c.r, c.g, c.b]
             })
             .collect()
@@ -677,6 +729,19 @@ mod tests {
         let effect = r#"{"group":1,"shape":{"type":"circle"},"center_pan":0,"center_tilt":0,"width":60,"height":30,"period":{"beats":4}}"#;
         let r = show.movement_reach_of(effect).unwrap();
         assert!(r.heads.is_empty() && r.pan_limit.is_none() && !r.clipped);
+    }
+
+    #[test]
+    fn cue_helpers() {
+        let show = ShowView::from_json(&serde_json::to_string(&Show::new("t")).unwrap()).unwrap();
+        assert!(show.cue_list_times_of(1, 120.0).is_none());
+        assert_eq!(show.update_cue_values_of("[]", "[]").unwrap(), "[]");
+        assert!(show.update_cue_values_of("{", "[]").is_err());
+        let cues = r#"[{"number":1,"name":"a","values":[]},{"number":2,"name":"b","values":[]}]"#;
+        // The digits of the cue number, not those of an f32 widened to f64.
+        assert_eq!(insert_cue_number_json(cues, 1).unwrap(), 1.1_f64);
+        assert_eq!(insert_cue_number_json(cues, 2).unwrap(), 3.0);
+        assert!(insert_cue_number_json("x", 0).is_err());
     }
 
     #[test]

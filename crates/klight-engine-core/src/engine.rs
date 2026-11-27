@@ -22,7 +22,7 @@ use crate::compile::{
     CompiledFunction, CompiledMatrix, CompiledMovement, CompiledShow, LogicalChannel, Merge, Role,
     StepContent, NO_ADDR, NO_CHANNEL,
 };
-use crate::effects::{cycle_turns, movement_size, render_matrix, render_movement};
+use crate::effects::{cycle_turns, effect_size, movement_size, render_matrix, render_movement};
 use crate::frame::{DmxFrame, FrameSlot};
 use crate::music::MusicClock;
 use crate::playback::{
@@ -1394,7 +1394,7 @@ impl Engine {
         }
         let bpm = self.rt.music.bpm();
         for p in &self.rt.playbacks {
-            // Effects have no fade out while stopping, but a movement's own.
+            // Effects stop at once, unless they have a fade out of their own.
             if p.stopping && p.effect_until.is_none() {
                 continue;
             }
@@ -1411,7 +1411,16 @@ impl Engine {
                 render_movement(m, turns(m.effect.period), size, base, channels, layer);
             };
             let matrix = |m: &CompiledMatrix, layer: &mut Layer| {
-                render_matrix(m, turns(m.period), p.level, channels, layer);
+                let e = &m.effect;
+                let size = effect_size(
+                    e.fade_in,
+                    e.fade_out,
+                    bpm,
+                    t.saturating_sub(start_us),
+                    remaining,
+                );
+                let level = scale(p.level, f32_to16(size));
+                render_matrix(m, turns(e.period), level, channels, layer);
             };
             let effects = &mut self.rt.effects;
             let collection = match &p.kind {

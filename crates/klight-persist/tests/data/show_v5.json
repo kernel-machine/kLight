@@ -150,6 +150,64 @@
           "ms": 1500
         }
       }
+    },
+    {
+      "id": 4,
+      "name": "Rain",
+      "kind": {
+        "type": "matrix_effect",
+        "group": 1,
+        "algorithm": {
+          "type": "twinkle",
+          "color": {
+            "r": 0.0,
+            "g": 0.2,
+            "b": 1.0
+          },
+          "background": {
+            "r": 0.0,
+            "g": 0.0,
+            "b": 0.0
+          },
+          "density": 0.25
+        },
+        "period": {
+          "beats": 2.0
+        },
+        "direction": "Forward",
+        "axis": "vertical",
+        "run_mode": "SingleShot",
+        "fade_in": {
+          "ms": 500
+        },
+        "fade_out": {
+          "beats": 1.0
+        }
+      }
+    },
+    {
+      "id": 5,
+      "name": "Wipe",
+      "kind": {
+        "type": "matrix_effect",
+        "group": 1,
+        "algorithm": {
+          "type": "fill",
+          "color": {
+            "r": 1.0,
+            "g": 1.0,
+            "b": 1.0
+          },
+          "background": {
+            "r": 0.0,
+            "g": 0.0,
+            "b": 0.0
+          }
+        },
+        "period": {
+          "ms": 2000
+        }
+      }
     }
   ],
   "virtual_console": {

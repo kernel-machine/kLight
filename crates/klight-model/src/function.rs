@@ -377,6 +377,32 @@ pub enum MatrixAlgorithm {
         text: String,
         color: Color,
     },
+    /// The grid fills with the color, one column after the other, over the
+    /// cycle.
+    Fill {
+        color: Color,
+        background: Color,
+    },
+    /// Cells light up at random, a new draw eight times per cycle;
+    /// `density` (0..=1) is the share of cells lit.
+    Twinkle {
+        color: Color,
+        background: Color,
+        density: f32,
+    },
+}
+
+/// Along which side of the grid a matrix effect moves (chase, wave,
+/// gradient, fill). Text always scrolls left.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[serde(rename_all = "snake_case")]
+pub enum MatrixAxis {
+    /// Across the columns, left to right.
+    #[default]
+    Horizontal,
+    /// Across the rows, top to bottom.
+    Vertical,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -388,6 +414,17 @@ pub struct MatrixEffect {
     pub period: TimeValue,
     #[serde(default)]
     pub direction: Direction,
+    #[serde(default)]
+    pub axis: MatrixAxis,
+    /// Loop, one cycle then stop, or forth and back.
+    #[serde(default)]
+    pub run_mode: RunMode,
+    /// The level rises from nothing when the effect starts, and goes back
+    /// to nothing when it is stopped.
+    #[serde(default)]
+    pub fade_in: TimeValue,
+    #[serde(default)]
+    pub fade_out: TimeValue,
 }
 
 /// Functions played all together, in parallel, of the types in
