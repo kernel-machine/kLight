@@ -407,7 +407,8 @@ impl Engine {
             | Command::CueGo { id }
             | Command::CueBack { id }
             | Command::CuePause { id }
-            | Command::CueGoTo { id, .. } => ControlKey::Function(*id),
+            | Command::CueGoTo { id, .. }
+            | Command::ChaserGoTo { id, .. } => ControlKey::Function(*id),
             Command::WidgetPress { id }
             | Command::WidgetRelease { id }
             | Command::WidgetSetValue { id, .. } => ControlKey::Widget(*id),
@@ -1212,6 +1213,24 @@ impl Engine {
                     .unwrap_or(false);
                 if !ok {
                     return Err(CommandError::not_found(format!("cue {index}")));
+                }
+            }
+            Command::ChaserGoTo { id, index } => {
+                let is_chaser = matches!(
+                    self.show.function(id).map(|f| &f.kind),
+                    Some(klight_model::FunctionKind::Chaser(_))
+                );
+                if !is_chaser {
+                    return Err(CommandError::not_found(format!("chaser {}", id.0)));
+                }
+                if !self.is_active(id) {
+                    self.start_function(id)?;
+                }
+                let ok = self
+                    .with_playback(id, |p, pool, ctx| p.chaser_goto(pool, ctx, index as usize))
+                    .unwrap_or(false);
+                if !ok {
+                    return Err(CommandError::not_found(format!("chaser step {index}")));
                 }
             }
             Command::ProgrammerSet { target, value } => {

@@ -110,6 +110,14 @@ impl ShowView {
         Some(inspect::scene_lights(&self.show, scene))
     }
 
+    pub fn chaser_times_of(&self, id: u32, bpm: f64) -> Option<inspect::ChaserTimes> {
+        let klight_model::FunctionKind::Chaser(chaser) = &self.show.function(FunctionId(id))?.kind
+        else {
+            return None;
+        };
+        Some(inspect::chaser_times(chaser, bpm))
+    }
+
     pub fn scene_light_looks_of(&self, id: u32) -> Option<Vec<inspect::LightLook>> {
         let klight_model::FunctionKind::Scene(scene) = &self.show.function(FunctionId(id))?.kind
         else {
@@ -244,6 +252,12 @@ impl ShowView {
     /// JSON `SceneLights`, or undefined if the function is not a scene.
     pub fn scene_lights(&self, id: u32) -> Option<String> {
         self.scene_lights_of(id).map(|l| to_json(&l))
+    }
+
+    /// JSON `ChaserTimes`: hold and fade of every step at `bpm`, as the
+    /// engine plays them; undefined if the function is not a chaser.
+    pub fn chaser_times(&self, id: u32, bpm: f64) -> Option<String> {
+        self.chaser_times_of(id, bpm).map(|t| to_json(&t))
     }
 
     /// JSON `LightLook[]`: color and intensity the scene gives each of its
@@ -607,6 +621,12 @@ mod tests {
             "[]"
         );
         assert!(set_scene_channel_json("{", 3, channel, None).is_err());
+    }
+
+    #[test]
+    fn chaser_times_only_for_chasers() {
+        let show = ShowView::from_json(&serde_json::to_string(&Show::new("t")).unwrap()).unwrap();
+        assert!(show.chaser_times_of(1, 120.0).is_none());
     }
 
     #[test]

@@ -201,6 +201,13 @@ pub enum Command {
         id: FunctionId,
         index: u32,
     },
+    /// Jumps a chaser to one of its steps (its place in the show's list),
+    /// starting it if it is not running. The step fades in with its own fade
+    /// and lasts its full hold from now.
+    ChaserGoTo {
+        id: FunctionId,
+        index: u32,
+    },
     ProgrammerSet {
         target: Target,
         value: AttributeValue,
