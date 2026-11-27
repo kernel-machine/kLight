@@ -261,6 +261,10 @@ consoles (grandMA, MagicQ), with a simple interface.
   its step is current, from the start of its cycle, in the effects layer (§8.2).
   The step fade is the crossfade of scenes (also those of a collection step):
   effects start and stop at once.
+  A step's hold (start to start of the next) and fade (into it, at its start)
+  are its own or, if it has none, the chaser's. `ChaserGoTo` jumps a chaser to
+  a step (its place in the show's list, as the runtime position), starting it if
+  needed: the step fades in with its own fade and lasts its full hold from then.
 - `CueList` — cues with times, Go/Back/Pause, current cue.
 - `MovementEffect` (EFX) — pan/tilt generators: circle, eight, line, square,
   lissajous; size, speed, phase distributed over the group.
@@ -542,6 +546,19 @@ goes on with it. A **highlight** (a bulb on each light) puts that light at full
 (white where it mixes colors) to find it on stage: it is sent as a preview,
 after the scene values so that it wins, and stores nothing.
 Undo and redo of show changes are always at hand in Design mode.
+
+The chaser editor follows the same layout: a header with a **test** group
+(previous step, Start/Stop, next step, live preview of the step picked while
+stopped) and a ⋯ menu (duplicate, delete); the chaser's hold, fade, mode and
+direction with their real duration at the current tempo and one pass (core
+`chaser_times`); a **timeline**, one block per step as wide as its hold, its
+fade shaded; the list of steps, each with its own hold and fade ("= 1 beat"
+while it follows the chaser), duplicate and remove, reordered by dragging its
+handle or with ↑/↓ on it. While the chaser runs, the current step is marked on
+both, with its progress, and clicking a step jumps to it (`ChaserGoTo`). Edits
+named by a step's position are dropped if the steps moved meanwhile (not if
+only times changed). Renames go through the same queue as the other edits of
+an editor, so that a rename right after a change never drops it.
 
 The scene editor sets the scene times: fade in, fade out, delay, the delay spread
 over the order of the lights (one after the other or from the center out) and

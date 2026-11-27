@@ -5,7 +5,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::attributes::{AttributeValue, Color};
 use crate::fixture_def::{Attribute, CapabilityKind, ChannelByte};
-use crate::function::{ChannelRef, FunctionKind, Scene, SceneValue, Target, ValueSource};
+use crate::function::{
+    ChannelRef, Chaser, FunctionKind, Scene, SceneValue, Target, TimeValue, ValueSource,
+};
 use crate::ids::{FixtureId, FunctionId, UniverseId};
 use crate::patch::{PatchedFixture, UNIVERSE_SIZE};
 use crate::show::Show;
@@ -456,6 +458,34 @@ pub struct LightLook {
     pub intensity: Option<f32>,
 }
 
+/// The times of one chaser step, its own or the chaser's.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct ChaserStepTime {
+    /// From its start to the start of the next step.
+    pub hold: TimeValue,
+    /// Crossfade into it, at its start (within its hold).
+    pub fade: TimeValue,
+    /// The step has its own hold / fade (else the chaser's).
+    pub own_hold: bool,
+    pub own_fade: bool,
+    /// The same at a tempo, in milliseconds.
+    pub hold_ms: f64,
+    pub fade_ms: f64,
+}
+
+/// The times of a chaser at a tempo.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct ChaserTimes {
+    /// The chaser's own hold and fade at that tempo, in milliseconds.
+    pub hold_ms: f64,
+    pub fade_ms: f64,
+    pub steps: Vec<ChaserStepTime>,
+    /// Once through every step, in milliseconds.
+    pub pass_ms: f64,
+}
+
 /// A value of a scene that later values override, on some or all of the
 /// channels it writes (values apply in order: the last one wins on every
 /// channel).
@@ -540,6 +570,35 @@ pub fn scene_value_color(show: &Show, members: &[Target], sv: &SceneValue) -> Op
                 _ => None,
             })
         }
+    }
+}
+
+/// The times of every step of a chaser at `bpm`, as the engine plays them
+/// (a step's own hold and fade, else the chaser's).
+pub fn chaser_times(chaser: &Chaser, bpm: f64) -> ChaserTimes {
+    let ms = |t: TimeValue| t.to_micros(bpm) as f64 / 1000.0;
+    let steps: Vec<ChaserStepTime> = chaser
+        .steps
+        .iter()
+        .map(|s| {
+            let hold = s.hold.unwrap_or(chaser.hold);
+            let fade = s.fade.unwrap_or(chaser.fade);
+            ChaserStepTime {
+                hold,
+                fade,
+                own_hold: s.hold.is_some(),
+                own_fade: s.fade.is_some(),
+                hold_ms: ms(hold),
+                fade_ms: ms(fade),
+            }
+        })
+        .collect();
+    let pass_ms = steps.iter().map(|s| s.hold_ms).sum();
+    ChaserTimes {
+        hold_ms: ms(chaser.hold),
+        fade_ms: ms(chaser.fade),
+        steps,
+        pass_ms,
     }
 }
 
@@ -930,6 +989,49 @@ mod tests {
         let info = fixture_info(&s, &s.fixtures[0]);
         assert!(info.has_position && info.has_color_mixing);
         assert_eq!(info.footprint, 6);
+    }
+
+    #[test]
+    fn chaser_times_take_each_step_own_times_or_the_chaser_ones() {
+        use crate::function::{ChaserStep, Direction, RunMode};
+        let step = |hold, fade| ChaserStep {
+            scene: FunctionId(1),
+            hold,
+            fade,
+        };
+        let chaser = Chaser {
+            steps: vec![
+                step(None, None),
+                step(Some(TimeValue::Beats(2.0)), None),
+                step(None, Some(TimeValue::Ms(100))),
+            ],
+            hold: TimeValue::Beats(1.0),
+            fade: TimeValue::ZERO,
+            direction: Direction::Forward,
+            run_mode: RunMode::Loop,
+        };
+        let t = chaser_times(&chaser, 120.0);
+        let summary: Vec<(f64, f64, bool, bool)> = t
+            .steps
+            .iter()
+            .map(|s| (s.hold_ms, s.fade_ms, s.own_hold, s.own_fade))
+            .collect();
+        assert_eq!(
+            summary,
+            vec![
+                (500.0, 0.0, false, false),
+                (1000.0, 0.0, true, false),
+                (500.0, 100.0, false, true),
+            ]
+        );
+        assert_eq!(t.steps.get(1).map(|s| s.hold), Some(TimeValue::Beats(2.0)));
+        assert_eq!(t.pass_ms, 2000.0);
+        assert_eq!((t.hold_ms, t.fade_ms), (500.0, 0.0));
+        assert_eq!(
+            chaser_times(&chaser, 60.0).pass_ms,
+            4000.0,
+            "beats follow the tempo"
+        );
     }
 
     #[test]

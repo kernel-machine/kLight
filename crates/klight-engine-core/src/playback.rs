@@ -489,6 +489,35 @@ impl Playback {
         true
     }
 
+    /// Jumps a chaser to the step at `index` in the show's list (a step whose
+    /// function cannot be played is not there). It fades in with its own fade
+    /// and lasts its full hold from now. False if there is no such step.
+    pub fn chaser_goto(
+        &mut self,
+        pool: &mut Vec<SceneInstance>,
+        ctx: &Ctx<'_>,
+        index: usize,
+    ) -> bool {
+        let PlaybackKind::Chaser(state) = &mut self.kind else {
+            return false;
+        };
+        let Some(pos) = state.chaser.steps.iter().position(|s| s.index == index) else {
+            return false;
+        };
+        let Some(step) = state.chaser.steps.get(pos) else {
+            return false;
+        };
+        let content = step.content.clone();
+        let fade = step.fade.to_micros(ctx.music.bpm());
+        state.step = pos;
+        state.step_start_us = ctx.now_us;
+        state.step_start_beat = ctx.music.beat_at(ctx.now_us);
+        self.paused_since = None;
+        self.release_all(ctx, Some(fade));
+        self.enter_step(pool, &content, ctx);
+        true
+    }
+
     fn go_to_scene(
         &mut self,
         pool: &mut Vec<SceneInstance>,

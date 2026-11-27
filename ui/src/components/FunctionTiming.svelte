@@ -22,7 +22,7 @@
 </script>
 
 {#if f.kind.type === 'chaser'}
-  <TimeSelect label="Step" value={f.kind.hold} onchange={(t) => set('hold', t)} />
+  <TimeSelect label="Hold" value={f.kind.hold} onchange={(t) => set('hold', t)} />
   <TimeSelect label="Fade" zero value={f.kind.fade} onchange={(t) => set('fade', t)} />
 {:else if f.kind.type === 'movement_effect' || f.kind.type === 'matrix_effect'}
   <TimeSelect label="Cycle" value={f.kind.period} onchange={(t) => set('period', t)} />

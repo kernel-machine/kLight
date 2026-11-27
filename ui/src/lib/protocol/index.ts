@@ -18,6 +18,8 @@ export type { ChannelPreset } from "./ChannelPreset";
 export type { ChannelRef } from "./ChannelRef";
 export type { Chaser } from "./Chaser";
 export type { ChaserStep } from "./ChaserStep";
+export type { ChaserStepTime } from "./ChaserStepTime";
+export type { ChaserTimes } from "./ChaserTimes";
 export type { ClientId } from "./ClientId";
 export type { ClientMessage } from "./ClientMessage";
 export type { Collection } from "./Collection";

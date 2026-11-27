@@ -28,6 +28,12 @@ From a tablet or phone open `http://<pc-address>:9400/?token=<token>`.
   the scene with its own times and pauses the live preview; Duplicate, the
   programmer and Delete are in the ⋯ menu. Pan and tilt can be dragged on an XY
   pad (*Fine*, or Shift, moves ten times slower).
+  The chaser editor has the same header: ◀ / ▶ step back and on, Start/Stop,
+  and a live preview of the step you pick while it is stopped. The timeline
+  shows every step as long as it lasts; while the chaser runs, the current one
+  is marked and a click on any step jumps there. Each step can have its own
+  *Hold* and *Fade* ("= 1 beat" means it follows the chaser); ⧉ duplicates a
+  step; drag the ⠿ handle, or focus it and use ↑/↓, to reorder.
 - **Virtual Console**: in Design mode add and move widgets; in Show mode the
   widgets are live and the structure is locked.
 - **Simple Desk**: tap a group or some fixtures, then an intention (intensity,

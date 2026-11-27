@@ -574,8 +574,8 @@ test('chaser steps are picked in a dialog and can be reordered', async ({ page }
   await dialog.getByRole('button', { name: 'Add 2 steps' }).click();
   await expect(steps).toHaveText(['Step B', 'Step A', 'Step C', 'Step B']);
 
-  // Step and fade are picked from a list of beat lengths (the fade also 0).
-  const step = page.getByLabel('Step', { exact: true });
+  // Hold and fade are picked from a list of beat lengths (the fade also 0).
+  const step = page.getByLabel('Hold', { exact: true });
   const fade = page.getByLabel('Fade', { exact: true });
   const lengths = ['1/32', '1/16', '1/8', '1/4', '1/2'].map((n) => `${n} beat`).concat('1 beat', ['2', '4', '8', '16', '32'].map((n) => `${n} beats`));
   await expect(step.locator('option')).toHaveText(lengths);
@@ -617,8 +617,12 @@ test('chaser steps are picked in a dialog and can be reordered', async ({ page }
   await page.getByRole('button', { name: 'Remove step 5' }).click();
   await expect(steps).toHaveCount(4);
 
-  // Order: arrows, drag and drop, removal.
-  await page.getByRole('button', { name: 'Move step 3 up' }).click();
+  // Order: the handle with the keyboard, drag and drop, removal.
+  const moveStep = async (n: number, key: 'ArrowUp' | 'ArrowDown') => {
+    await page.getByRole('button', { name: `Move step ${n}`, exact: true }).focus();
+    await page.keyboard.press(key);
+  };
+  await moveStep(3, 'ArrowUp');
   await expect(steps).toHaveText(['Step B', 'Step C', 'Step A', 'Step B']);
   await page.getByRole('button', { name: 'Remove step 4' }).click();
   await expect(steps).toHaveText(['Step B', 'Step C', 'Step A']);
@@ -639,7 +643,10 @@ test('chaser steps are picked in a dialog and can be reordered', async ({ page }
     });
     await expect(warning).toBeVisible();
   };
-  await clickTwice('Move step 3 up');
+  await page.getByRole('button', { name: 'Move step 3', exact: true }).evaluate((b: HTMLButtonElement) => {
+    for (let k = 0; k < 2; k++) b.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+  });
+  await expect(warning).toBeVisible();
   await expect(steps).toHaveText(['Step B', 'Step A', 'Step C']);
   // The next check needs a warning of its own.
   await expect(warning).toHaveCount(0);
@@ -650,11 +657,11 @@ test('chaser steps are picked in a dialog and can be reordered', async ({ page }
   await dialog.getByLabel('Select Step B').check();
   await dialog.getByRole('button', { name: 'Add 1 step' }).click();
   await expect(steps).toHaveText(['Step A', 'Step C', 'Step B']);
-  await page.getByRole('button', { name: 'Move step 3 up' }).click();
+  await moveStep(3, 'ArrowUp');
   await expect(steps).toHaveText(['Step A', 'Step B', 'Step C']);
-  await page.getByRole('button', { name: 'Move step 1 down' }).click();
+  await moveStep(1, 'ArrowDown');
   await expect(steps).toHaveText(['Step B', 'Step A', 'Step C']);
-  await page.getByRole('button', { name: 'Move step 3 up' }).click();
+  await moveStep(3, 'ArrowUp');
   await expect(steps).toHaveText(['Step B', 'Step C', 'Step A']);
 
   // The order is the engine's, not just the page's.
@@ -735,7 +742,7 @@ test('the function of a virtual console button is picked in a dialog', async ({ 
     // The panel follows once the engine has the new function.
     await expect(field).toHaveAccessibleName(new RegExp(`^Function: ${kind}`));
   };
-  const step = page.getByLabel('Step', { exact: true });
+  const step = page.getByLabel('Hold', { exact: true });
   const cycle = page.getByLabel('Cycle', { exact: true });
   await choose('Step A');
   await expect(step).toHaveCount(0);
@@ -1154,10 +1161,13 @@ test('a scene can be duplicated, and the copy changes on its own', async ({ page
   await sceneMenu(page, 'Duplicate');
   await expect(name).toHaveValue('Original copy 2');
 
-  // Only scenes offer it.
-  await page.getByRole('treeitem', { name: /^Chaser \d+/ }).click();
+  // Scenes and chasers offer it, in their menu; not effects.
+  await page.getByRole('treeitem', { name: /^Chaser \d+/ }).first().click();
+  await sceneMenu(page, 'Duplicate');
+  await expect(page.locator('.editor input').first()).toHaveValue(/^Chaser \d+ copy$/);
+  await page.getByRole('treeitem', { name: /^Movement \d+/ }).first().click();
   await expect(page.getByRole('button', { name: 'Delete', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Duplicate' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'More actions' })).toHaveCount(0);
 });
 
 test('a scene is started, previewed on the lights and undone from its editor', async ({ page }) => {
@@ -1321,4 +1331,135 @@ test('scene values with no effect, highlight, times per attribute and tests with
   await header.getByRole('button', { name: 'Stop', exact: true }).click();
   await expect(output).toHaveText('0');
   await live.uncheck();
+});
+
+test('a chaser shows its timeline, takes times per step and jumps to a step', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByText('Engine: connected')).toBeVisible();
+  await page.getByRole('button', { name: 'Stop all' }).click();
+  await page.getByRole('button', { name: 'FX', exact: true }).click();
+  const name = page.locator('.editor input').first();
+  for (const scene of ['Go 1', 'Go 2', 'Go 3']) {
+    await page.getByRole('button', { name: 'New scene', exact: true }).click();
+    await expect(name).toHaveValue(/^Scene \d+$/);
+    await name.fill(scene);
+    await name.press('Enter');
+    await expect(page.getByRole('treeitem', { name: new RegExp(scene) })).toBeVisible();
+    // The first one lights the wheel spot, to be seen in the preview.
+    if (scene === 'Go 1') {
+      await addLights(page, 'Wheel spot');
+      // Regression: renaming right after a change dropped it (the rename saved
+      // a copy taken before the change came back). Both in the same task.
+      await expect(page.getByRole('group', { name: 'Quick levels' })).toBeVisible();
+      await page.evaluate(() => {
+        const full = [...document.querySelectorAll<HTMLButtonElement>('[aria-label="Quick levels"] button')].find((b) => b.textContent?.trim() === '100%');
+        full?.click();
+        const input = document.querySelector<HTMLInputElement>('.editor input');
+        if (input) {
+          input.value = 'Go 1 lit';
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      });
+      await expect(page.getByRole('treeitem', { name: /Go 1 lit/ })).toBeVisible();
+      await expect(page.locator('tr', { hasText: 'Intensity 100%' })).toHaveCount(1);
+      await name.fill('Go 1');
+      await name.press('Enter');
+    }
+  }
+  await page.getByRole('button', { name: 'New chaser', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  for (const scene of ['Go 1', 'Go 2', 'Go 3']) await dialog.getByLabel(`Select ${scene}`, { exact: true }).check();
+  // Regression: renaming right after adding steps dropped them. Same task.
+  await expect(dialog.getByRole('button', { name: 'Add 3 steps' })).toBeEnabled();
+  await page.evaluate(() => {
+    const add = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find((b) => b.textContent?.trim() === 'Add 3 steps');
+    add?.click();
+    const input = document.querySelector<HTMLInputElement>('.editor input');
+    if (input) {
+      input.value = 'Tester';
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  });
+  await expect(page.getByRole('treeitem', { name: /Tester/ })).toBeVisible();
+  const steps = page.getByRole('list', { name: 'Chaser steps' }).locator('li');
+  await expect(steps.locator('.name')).toHaveText(['Go 1', 'Go 2', 'Go 3']);
+  await page.waitForTimeout(300);
+  await expect(steps.locator('.name')).toHaveText(['Go 1', 'Go 2', 'Go 3']);
+
+  // One block per step on the timeline, as long as it lasts.
+  const blocks = page.getByRole('region', { name: 'Timeline' }).getByRole('button');
+  await expect(blocks).toHaveCount(3);
+  await expect(blocks.nth(1)).toContainText('1 beat');
+
+  // A step can have its own hold, and give it back to the chaser.
+  const hold2 = page.getByLabel('Hold of step 2', { exact: true });
+  await expect(hold2.locator('option:checked')).toHaveText('= 1 beat');
+  await hold2.selectOption({ label: '2 beats' });
+  await expect(hold2).toHaveClass(/\bown\b/);
+  await expect(blocks.nth(1)).toContainText('2 beats');
+  await hold2.selectOption({ label: '= 1 beat' });
+  await expect(hold2).not.toHaveClass(/\bown\b/);
+  await expect(blocks.nth(1)).toContainText('1 beat');
+  // Regression: two quick time edits on different steps are both kept (the
+  // second was dropped as if the steps had moved).
+  await page.evaluate(() => {
+    const pick = (label: string, text: string) => {
+      const select = document.querySelector<HTMLSelectElement>(`select[aria-label="${label}"]`);
+      const option = [...(select?.options ?? [])].find((o) => o.text === text);
+      if (select && option) {
+        select.value = option.value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    };
+    pick('Hold of step 1', '2 beats');
+    pick('Fade of step 3', '1/2 beat');
+  });
+  await expect(page.getByLabel('Hold of step 1', { exact: true })).toHaveClass(/\bown\b/);
+  await expect(page.getByLabel('Fade of step 3', { exact: true })).toHaveClass(/\bown\b/);
+  await expect(page.getByText('The steps changed in the meantime')).toHaveCount(0);
+  await page.getByLabel('Hold of step 1', { exact: true }).selectOption({ label: '= 1 beat' });
+  await page.getByLabel('Fade of step 3', { exact: true }).selectOption({ label: '= 0' });
+
+  // A step can be duplicated next to itself.
+  await page.getByRole('button', { name: 'Duplicate step 1', exact: true }).click();
+  await expect(steps.locator('.name')).toHaveText(['Go 1', 'Go 1', 'Go 2', 'Go 3']);
+  await page.getByRole('button', { name: 'Remove step 2', exact: true }).click();
+  await expect(steps.locator('.name')).toHaveText(['Go 1', 'Go 2', 'Go 3']);
+
+  // Running: the current step is marked; a click, or the step buttons, jump.
+  // Long steps, so that it does not move on by itself meanwhile.
+  await page.getByLabel('Hold', { exact: true }).selectOption({ label: '32 beats' });
+  const header = page.locator('.editor .head');
+  await header.getByRole('button', { name: 'Start', exact: true }).click();
+  await expect(steps.nth(0)).toHaveClass(/\bcurrent\b/);
+  await expect(blocks.nth(0)).toHaveAttribute('aria-current', 'step');
+  await steps.nth(2).locator('button.pick').click();
+  await expect(steps.nth(2)).toHaveClass(/\bcurrent\b/);
+  await expect(steps.nth(0)).not.toHaveClass(/\bcurrent\b/);
+  await header.getByRole('button', { name: 'Next step' }).click();
+  await expect(steps.nth(0)).toHaveClass(/\bcurrent\b/);
+  await header.getByRole('button', { name: 'Previous step' }).click();
+  await expect(steps.nth(2)).toHaveClass(/\bcurrent\b/);
+  await blocks.nth(1).click();
+  await expect(steps.nth(1)).toHaveClass(/\bcurrent\b/);
+  await expect(page.getByRole('region', { name: 'Timeline' })).toContainText('Playing step 2 of 3');
+  await header.getByRole('button', { name: 'Stop', exact: true }).click();
+  await expect(steps.locator('li.current, .current')).toHaveCount(0);
+
+  // Stopped, a step picked is shown on the lights when the preview is on.
+  await page.getByRole('button', { name: 'DMX monitor' }).click();
+  const cell = page.locator('.monitor .cell[title*="Wheel spot — Dimmer"] .v');
+  await expect(cell).toHaveText('0');
+  await page.getByLabel('Live preview on the lights').check();
+  await steps.nth(0).locator('button.pick').click();
+  await expect(steps.nth(0)).toHaveClass(/\bpicked\b/);
+  await expect(cell).toHaveText('255');
+  await steps.nth(1).locator('button.pick').click();
+  await expect(cell).toHaveText('0');
+  await page.getByLabel('Live preview on the lights').uncheck();
+  await page.getByRole('button', { name: 'Close' }).click();
+
+  // Delete is in the menu.
+  await sceneMenu(page, 'Delete chaser');
+  await expect(page.getByRole('treeitem', { name: /Tester/ })).toHaveCount(0);
 });
