@@ -14,7 +14,7 @@
     ['Intensity', 'Intensity'],
     ['Color', 'Color'],
     ['Position', 'Position'],
-    ['Beam', 'Beam (gobo, prism, zoom, strobe)'],
+    ['Beam', 'Beam'],
   ];
   const FIELDS: Array<[keyof Timing, string]> = [
     ['fade_in', 'Fade in'],
@@ -91,7 +91,7 @@
       {#each KINDS as [kind, label] (kind)}
         {@const t = own(kind)?.timing}
         <div class="kind">
-            <label class="row">
+            <label class="row" title={kind === 'Beam' ? 'Gobo, prism, zoom and strobe' : undefined}>
               <input type="checkbox" checked={!!t} aria-label="{label}: own times" onchange={(e) => setOwn(kind, e.currentTarget.checked ? { ...scene.timing } : null)} />
               {label}
             </label>
@@ -113,6 +113,7 @@
   .own { margin: 8px 0; }
   .own summary { cursor: pointer; font-weight: 600; }
   .kinds { display: flex; flex-direction: column; gap: 4px; }
+  .kind label { white-space: nowrap; }
   .kind { display: grid; grid-template-columns: minmax(140px, 1fr) 3fr; align-items: center; gap: 8px; }
   .times { display: flex; flex-wrap: wrap; gap: 4px; }
   .times button { font-size: 12px; padding: 4px 8px; }
