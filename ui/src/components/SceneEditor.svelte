@@ -375,28 +375,24 @@
 
 <SceneTiming {scene} onchange={update} />
 
-<h3>Lights ({lights.fixtures.length})</h3>
-<ul class="lights" aria-label="Scene lights">
-  {#each lights.members as m (JSON.stringify(m.target))}
-    {@const name = describeTarget(show, m.target)}
-    <li>
-      <span class="light">{name}</span>
-      {#if m.target.type === 'group'}
-        <span class="muted of" title={m.fixtures.map(fixtureName).join(', ')}>group: {m.fixtures.map(fixtureName).join(', ') || 'no fixtures'}</span>
-      {/if}
-      <button aria-label="Remove {name} from the scene" title="Remove from the scene" onclick={() => update((s, latest) => removeSceneMember(latest, s, m.target))}>×</button>
-    </li>
-  {:else}
-    <li class="muted">No lights yet: add the groups and fixtures this scene drives.</li>
-  {/each}
-</ul>
-<div class="row">
-  <button class="primary" onclick={() => (adding = true)}>Add lights…</button>
-  <label class="row" title="When off, lights added later do not take the values given to all lights">
-    <input type="checkbox" checked={scene.new_members_follow} onchange={(e) => { const on = e.currentTarget.checked; update((s) => ({ ...s, new_members_follow: on })); }} />
-    Lights added later take the values of all lights
-  </label>
-</div>
+{#snippet addLightsRow()}
+  <div class="row add-lights">
+    <button class="primary" onclick={() => (adding = true)}>Add lights…</button>
+    {#if lights.members.length}
+      <label class="row small" title="When off, lights added later do not take the values given to all lights">
+        <input type="checkbox" checked={scene.new_members_follow} onchange={(e) => { const on = e.currentTarget.checked; update((s) => ({ ...s, new_members_follow: on })); }} />
+        Lights added later take the values of all lights
+      </label>
+    {/if}
+  </div>
+{/snippet}
+
+<!-- The lights of the scene are listed (and removed) in "Choose lights". -->
+{#if !lights.members.length}
+  <h3>Lights</h3>
+  <p class="muted">No lights yet: add the groups and fixtures this scene drives.</p>
+  {@render addLightsRow()}
+{/if}
 
 {#snippet fromProgrammer()}
   <button disabled={!programmer.length} onclick={() => mergeProgrammer(false)}>Add programmer values</button>
@@ -417,9 +413,10 @@
 <div class="compose">
   <div class="steps">
     <section class="card pick" aria-label="Choose lights">
-      <h3><span class="step">1</span> Choose lights</h3>
+      <h3><span class="step">1</span> Choose lights <small class="muted">({lights.fixtures.length} in the scene)</small></h3>
+      {@render addLightsRow()}
       {#key sceneId}
-        <ApplyTo {lights} groups={memberGroups} {group} {chosen} onall={toAll} ongroup={chooseGroup} onfixtures={chooseFixtures} />
+        <ApplyTo {lights} groups={memberGroups} {group} {chosen} onall={toAll} ongroup={chooseGroup} onfixtures={chooseFixtures} onremove={(light) => update((s, latest) => removeSceneMember(latest, s, light))} />
       {/key}
       <button
         class="highlight"
@@ -600,12 +597,7 @@
   /* A second way to give values: kept apart and quiet. */
   .programmer { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 10px; border-top: 1px solid var(--border); }
   .programmer button { flex: 1; font-size: 12px; }
-  .lights { margin: 0 0 8px; padding: 0; list-style: none; border: 1px solid var(--border); border-radius: var(--radius); max-height: 30vh; overflow: auto; }
-  .lights li { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-bottom: 1px solid var(--border); }
-  .lights li:last-child { border-bottom: none; }
-  .light { font-weight: 600; }
-  .of { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-  .lights button { margin-left: auto; padding: 2px 10px; }
+  .add-lights { margin-bottom: 8px; flex-wrap: wrap; }
   .wheel { display: flex; flex-wrap: wrap; gap: 6px; }
   .wheel .chip { width: 26px; height: 26px; padding: 0; border-radius: 6px; background: var(--c); border: 2px solid var(--border); cursor: pointer; }
   .wheel .chip:hover { border-color: var(--muted); }

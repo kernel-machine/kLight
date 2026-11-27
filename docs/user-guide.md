@@ -17,7 +17,9 @@ From a tablet or phone open `http://<pc-address>:9400/?token=<token>`.
 - **FX**: scenes (fades, delays, delays spread over the group, own times per
   attribute), chasers (times in ms or beats), cue lists with GO/Back/Pause and
   *move in black*, movement effects and matrix effects, palettes.
-  In the scene editor, values apply in order: on every channel the last one
+  In the scene editor, *Choose lights* is also the list of the scene's lights:
+  the × next to a group or a fixture takes it out (a fixture there only
+  through a group goes with the group). Values apply in order: on every channel the last one
   wins, whoever it goes to. A value that later ones override entirely is
   greyed out as "no effect" and can be removed in one click. *Highlight* lights
   the chosen fixtures at full to find them on stage; pan and tilt can be
