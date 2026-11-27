@@ -4,7 +4,11 @@ import type { ChaserStepTime } from "./ChaserStepTime";
 /**
  * The times of a chaser at a tempo.
  */
-export type ChaserTimes = { steps: Array<ChaserStepTime>, 
+export type ChaserTimes = { 
+/**
+ * The chaser's own hold and fade at that tempo, in milliseconds.
+ */
+hold_ms: number, fade_ms: number, steps: Array<ChaserStepTime>, 
 /**
  * Once through every step, in milliseconds.
  */

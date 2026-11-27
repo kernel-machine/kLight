@@ -478,6 +478,9 @@ pub struct ChaserStepTime {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct ChaserTimes {
+    /// The chaser's own hold and fade at that tempo, in milliseconds.
+    pub hold_ms: f64,
+    pub fade_ms: f64,
     pub steps: Vec<ChaserStepTime>,
     /// Once through every step, in milliseconds.
     pub pass_ms: f64,
@@ -591,7 +594,12 @@ pub fn chaser_times(chaser: &Chaser, bpm: f64) -> ChaserTimes {
         })
         .collect();
     let pass_ms = steps.iter().map(|s| s.hold_ms).sum();
-    ChaserTimes { steps, pass_ms }
+    ChaserTimes {
+        hold_ms: ms(chaser.hold),
+        fade_ms: ms(chaser.fade),
+        steps,
+        pass_ms,
+    }
 }
 
 /// The look of every fixture of a scene, in the order of its lights.
@@ -1018,6 +1026,7 @@ mod tests {
         );
         assert_eq!(t.steps.get(1).map(|s| s.hold), Some(TimeValue::Beats(2.0)));
         assert_eq!(t.pass_ms, 2000.0);
+        assert_eq!((t.hold_ms, t.fade_ms), (500.0, 0.0));
         assert_eq!(
             chaser_times(&chaser, 60.0).pass_ms,
             4000.0,
