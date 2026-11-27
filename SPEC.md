@@ -565,8 +565,18 @@ Every feature is complete only with its tests. Levels:
    or return random errors; clients that disconnect in the middle of a
    command; killing the engine and checking the restore by the supervisor.
 6. **Soak tests**: realistic show for 24–48 h with the real clock; check
-   stable memory, jitter within threshold and no lost frames. Nightly in CI
+   stable memory, no lost ticks or frames and the tick timing. Nightly in CI
    (short 30-minute version on PRs).
+   The engine is judged on what the machine cannot change, read on the tick
+   thread at the start and the end of every tick's work (the soak passes a
+   thread probe to the tick loop; OS calls stay out of the core): its **CPU
+   time** (limit per tick, and p99.9 over the run) and its **voluntary context
+   switches**, which must be zero (a lock, a sleep or I/O in the tick). Wall
+   time also counts what the host does (other programs, hypervisor steal, a
+   paused VM): it only tells whether the machine is fit for the soak (wake-up
+   jitter p99 over the whole run; a witness thread sees pauses of the whole
+   process). A self-check run injects a sleeping and a computing tick and must
+   fail on both, so the soak cannot go blind.
 7. **Allocation tests**: the tick loop does not allocate after warm-up.
 8. **MIDI feedback tests**: virtual device; for each profile, "green active
    widget" → exact expected bytes.

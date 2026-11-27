@@ -73,6 +73,19 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y libudev-dev libasound2-dev pkg-config
       - uses: dtolnay/rust-toolchain@1.94.1
       - uses: Swatinem/rust-cache@v2
+      # The soak must be able to fail: a tick that sleeps 1 ms, or computes
+      # for 5 ms, has to be caught. If either run passes, the soak is blind.
+      - name: Soak self-check (both runs must fail)
+        run: |
+          cargo build -p klight-sim --release --bin klight-soak
+          for fault in "--inject-slow-tick-ms 1" "--inject-busy-tick-ms 5"; do
+            out=$(./target/release/klight-soak --minutes 0.5 $fault 2>&1 || true)
+            echo "$out" | tail -5
+            # Failing for another reason (e.g. a busy machine) does not count.
+            if ! echo "$out" | grep -q "SOAK FAILURE: engine: tick"; then
+              echo "::error::the soak did not catch: $fault"; exit 1
+            fi
+          done
       - name: Soak (30 min on PRs, 24 h nightly)
         run: cargo run -p klight-sim --release --bin klight-soak -- --minutes ${{ github.event_name == 'schedule' && '1440' || '30' }}
         timeout-minutes: 1500
