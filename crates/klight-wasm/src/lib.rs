@@ -110,6 +110,14 @@ impl ShowView {
         Some(inspect::scene_lights(&self.show, scene))
     }
 
+    pub fn scene_light_looks_of(&self, id: u32) -> Option<Vec<inspect::LightLook>> {
+        let klight_model::FunctionKind::Scene(scene) = &self.show.function(FunctionId(id))?.kind
+        else {
+            return None;
+        };
+        Some(inspect::scene_light_looks(&self.show, scene))
+    }
+
     pub fn function_color_of(&self, id: u32) -> Option<Color> {
         inspect::function_color(&self.show, FunctionId(id))
     }
@@ -236,6 +244,12 @@ impl ShowView {
     /// JSON `SceneLights`, or undefined if the function is not a scene.
     pub fn scene_lights(&self, id: u32) -> Option<String> {
         self.scene_lights_of(id).map(|l| to_json(&l))
+    }
+
+    /// JSON `LightLook[]`: color and intensity the scene gives each of its
+    /// fixtures; undefined if the function is not a scene.
+    pub fn scene_light_looks(&self, id: u32) -> Option<String> {
+        self.scene_light_looks_of(id).map(|l| to_json(&l))
     }
 
     /// Linear RGB `[r, g, b]` of the color a function shows (first color its
@@ -593,6 +607,12 @@ mod tests {
             "[]"
         );
         assert!(set_scene_channel_json("{", 3, channel, None).is_err());
+    }
+
+    #[test]
+    fn light_looks_only_for_scenes() {
+        let show = ShowView::from_json(&serde_json::to_string(&Show::new("t")).unwrap()).unwrap();
+        assert!(show.scene_light_looks_of(1).is_none());
     }
 
     #[test]

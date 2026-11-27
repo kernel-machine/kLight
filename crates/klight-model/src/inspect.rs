@@ -443,6 +443,19 @@ pub struct SceneLights {
     pub fixtures: Vec<FixtureId>,
 }
 
+/// The color and intensity a scene gives one of its fixtures, as intentions:
+/// from its values in order, the last one that reaches the fixture wins
+/// (directly, through a group, or to all the lights of the scene). None where
+/// no value sets it (or only channels set by hand do).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct LightLook {
+    pub fixture: FixtureId,
+    pub color: Option<Color>,
+    /// 0..=1.
+    pub intensity: Option<f32>,
+}
+
 /// A value of a scene that later values override, on some or all of the
 /// channels it writes (values apply in order: the last one wins on every
 /// channel).
@@ -528,6 +541,44 @@ pub fn scene_value_color(show: &Show, members: &[Target], sv: &SceneValue) -> Op
             })
         }
     }
+}
+
+/// The look of every fixture of a scene, in the order of its lights.
+pub fn scene_light_looks(show: &Show, scene: &Scene) -> Vec<LightLook> {
+    let lights = scene_lights(show, scene);
+    let mut looks: Vec<LightLook> = lights
+        .fixtures
+        .iter()
+        .map(|&fixture| LightLook {
+            fixture,
+            color: None,
+            intensity: None,
+        })
+        .collect();
+    for sv in &scene.values {
+        let reached = match sv.target {
+            Target::Scene => lights.fixtures.clone(),
+            ref target => target_fixtures(show, target),
+        };
+        for look in looks.iter_mut().filter(|l| reached.contains(&l.fixture)) {
+            let values: &[AttributeValue] = match &sv.value {
+                ValueSource::Explicit { value } => std::slice::from_ref(value),
+                ValueSource::Palette { id } => match show.palette(*id) {
+                    Some(p) => p.values_for(look.fixture),
+                    None => &[],
+                },
+                ValueSource::Channel { .. } => &[],
+            };
+            for v in values {
+                match v {
+                    AttributeValue::Color { color } => look.color = Some(*color),
+                    AttributeValue::Intensity { level } => look.intensity = Some(*level),
+                    _ => {}
+                }
+            }
+        }
+    }
+    looks
 }
 
 fn first_fixture(show: &Show, target: &Target) -> Option<FixtureId> {
@@ -879,6 +930,104 @@ mod tests {
         let info = fixture_info(&s, &s.fixtures[0]);
         assert!(info.has_position && info.has_color_mixing);
         assert_eq!(info.footprint, 6);
+    }
+
+    #[test]
+    fn light_looks_follow_the_values_in_order_whoever_they_go_to() {
+        use crate::ids::{GroupId, PaletteId};
+        use crate::palette::{FixturePaletteValues, Palette, PaletteKind};
+        use crate::patch::{FixtureGroup, GroupMember};
+        let mut s = show(&[1, 20]);
+        let red = Color::new(1.0, 0.0, 0.0);
+        let blue = Color::new(0.0, 0.0, 1.0);
+        let green = Color::new(0.0, 1.0, 0.0);
+        s.groups.push(FixtureGroup {
+            id: GroupId(1),
+            name: "both".into(),
+            members: [1, 2]
+                .map(|f| GroupMember {
+                    fixture: FixtureId(f),
+                    head: 0,
+                    grid: None,
+                })
+                .to_vec(),
+            grid_width: 0,
+            grid_height: 0,
+        });
+        s.palettes.push(Palette {
+            id: PaletteId(7),
+            name: "p".into(),
+            kind: PaletteKind::Color,
+            generic: vec![AttributeValue::Color { color: red }],
+            per_fixture: vec![FixturePaletteValues {
+                fixture: FixtureId(2),
+                values: vec![AttributeValue::Color { color: green }],
+            }],
+        });
+        let at = |id| Target::Fixture { id: FixtureId(id) };
+        let explicit = |target, value| SceneValue {
+            target,
+            value: ValueSource::Explicit { value },
+        };
+        let scene = Scene {
+            members: vec![Target::Group { id: GroupId(1) }],
+            values: vec![
+                explicit(at(1), AttributeValue::Color { color: blue }),
+                // The whole scene after: it wins on fixture 1 too.
+                explicit(Target::Scene, AttributeValue::Intensity { level: 0.5 }),
+                // A palette: each fixture its own color.
+                SceneValue {
+                    target: Target::Group { id: GroupId(1) },
+                    value: ValueSource::Palette { id: PaletteId(7) },
+                },
+                // Then one fixture again: the last word on it.
+                explicit(at(2), AttributeValue::Intensity { level: 1.0 }),
+            ],
+            ..Scene::default()
+        };
+        assert_eq!(
+            scene_light_looks(&s, &scene),
+            vec![
+                LightLook {
+                    fixture: FixtureId(1),
+                    color: Some(red),
+                    intensity: Some(0.5)
+                },
+                LightLook {
+                    fixture: FixtureId(2),
+                    color: Some(green),
+                    intensity: Some(1.0)
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn light_looks_are_unset_without_values_and_ignore_channels_by_hand() {
+        let s = show(&[1]);
+        let scene = Scene {
+            members: vec![Target::Fixture { id: FixtureId(1) }],
+            values: vec![SceneValue {
+                target: Target::Fixture { id: FixtureId(1) },
+                value: ValueSource::Channel {
+                    channel: ChannelRef::Dmx {
+                        attribute: Attribute::Dimmer,
+                        index: 0,
+                        fine: false,
+                    },
+                    value: 255,
+                },
+            }],
+            ..Scene::default()
+        };
+        assert_eq!(
+            scene_light_looks(&s, &scene),
+            vec![LightLook {
+                fixture: FixtureId(1),
+                color: None,
+                intensity: None
+            }]
+        );
     }
 
     #[test]
