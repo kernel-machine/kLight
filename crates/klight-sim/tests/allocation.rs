@@ -105,6 +105,14 @@ fn steady_state_tick_does_not_allocate() {
                     period: TimeValue::Beats(4.0),
                     phase_spread: 90.0,
                     direction: Direction::Forward,
+                    // Every path of the movement: turned, mirrored, back and
+                    // forth, added to the scenes, growing in.
+                    rotation: 30.0,
+                    mirror: MovementMirror::Alternate,
+                    run_mode: klight_model::function::RunMode::PingPong,
+                    relative: true,
+                    fade_in: TimeValue::Beats(2.0),
+                    fade_out: TimeValue::ZERO,
                 }),
             },
         },

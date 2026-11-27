@@ -167,6 +167,12 @@ fn main() {
             period: TimeValue::Beats(8.0),
             phase_spread: 90.0,
             direction: Direction::Forward,
+            rotation: 0.0,
+            mirror: MovementMirror::None,
+            run_mode: klight_model::function::RunMode::Loop,
+            relative: false,
+            fade_in: TimeValue::ZERO,
+            fade_out: TimeValue::ZERO,
         }),
     });
     show.functions.push(Function {

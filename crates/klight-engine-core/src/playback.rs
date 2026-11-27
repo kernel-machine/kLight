@@ -9,6 +9,7 @@ use crate::compile::{
     CompiledChaser, CompiledCollection, CompiledCueList, CompiledMatrix, CompiledMovement,
     CompiledScene, LogicalChannel, Merge, StepContent, NO_CHANNEL,
 };
+use crate::effects::cycle_turns;
 use crate::music::{beats_to_fixed, MusicClock};
 
 /// Values set by one layer, indexed by logical channel.
@@ -296,6 +297,8 @@ pub struct Playback {
     pub paused_since: Option<u64>,
     /// Times scenes of a collection were started together.
     pub groups: u64,
+    /// A movement effect stopped with a fade out: when it ends.
+    pub effect_until: Option<u64>,
 }
 
 /// Context handed to playback updates.
@@ -438,11 +441,21 @@ impl Playback {
     pub fn stop(&mut self, ctx: &Ctx<'_>) -> bool {
         self.stopping = true;
         self.release_all(ctx, None);
-        // Effects have nothing to fade out.
-        matches!(
-            self.kind,
-            PlaybackKind::Movement(_) | PlaybackKind::Matrix(_)
-        ) || (matches!(self.kind, PlaybackKind::Collection(_)) && self.instances.is_empty())
+        match &self.kind {
+            // A movement may shrink back to its center first.
+            PlaybackKind::Movement(m) => {
+                let out = m.effect.fade_out.to_micros(ctx.music.bpm());
+                if out == 0 {
+                    return true;
+                }
+                self.effect_until = Some(ctx.now_us.saturating_add(out));
+                false
+            }
+            // Matrix effects have nothing to fade out.
+            PlaybackKind::Matrix(_) => true,
+            PlaybackKind::Collection(_) => self.instances.is_empty(),
+            _ => false,
+        }
     }
 
     pub fn cue_go(&mut self, pool: &mut Vec<SceneInstance>, ctx: &Ctx<'_>) {
@@ -556,6 +569,26 @@ impl Playback {
     /// changed (step/cue change, end).
     pub fn advance(&mut self, pool: &mut Vec<SceneInstance>, ctx: &Ctx<'_>) -> bool {
         let mut changed = false;
+        // A single shot movement stops after one cycle; a fade out ends.
+        if let PlaybackKind::Movement(m) = &self.kind {
+            if !self.stopping
+                && m.effect.run_mode == RunMode::SingleShot
+                && cycle_turns(
+                    m.effect.period,
+                    self.started_us,
+                    self.started_beat,
+                    ctx.now_us,
+                    ctx.music,
+                ) >= 1.0
+            {
+                self.stop(ctx);
+                changed = true;
+            }
+        }
+        if self.stopping && self.effect_until.is_some_and(|until| ctx.now_us >= until) {
+            self.effect_until = None;
+            changed = true;
+        }
         if self.paused_since.is_none() && !self.stopping {
             changed |= match &self.kind {
                 PlaybackKind::Chaser(_) => self.advance_chaser(pool, ctx),
@@ -715,7 +748,7 @@ impl Playback {
     }
 
     pub fn is_done(&self) -> bool {
-        self.stopping && self.instances.is_empty()
+        self.stopping && self.instances.is_empty() && self.effect_until.is_none()
     }
 }
 

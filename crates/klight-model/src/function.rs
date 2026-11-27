@@ -303,6 +303,52 @@ pub struct MovementEffect {
     pub phase_spread: f32,
     #[serde(default)]
     pub direction: Direction,
+    /// Rotation of the shape around its center, degrees counterclockwise.
+    #[serde(default)]
+    pub rotation: f32,
+    /// Heads that draw the shape mirrored left to right around its center.
+    #[serde(default)]
+    pub mirror: MovementMirror,
+    /// Loop, one cycle then stop, or back and forth along the shape.
+    #[serde(default)]
+    pub run_mode: RunMode,
+    /// The shape is added to the pan and tilt the scenes below give each
+    /// head (`center_*` is then an offset from there) instead of being placed
+    /// at `center_*`.
+    #[serde(default)]
+    pub relative: bool,
+    /// The size grows from nothing to full when the effect starts, and
+    /// shrinks back to the center when it is stopped.
+    #[serde(default)]
+    pub fade_in: TimeValue,
+    #[serde(default)]
+    pub fade_out: TimeValue,
+}
+
+/// Which heads of a movement effect draw the shape mirrored left to right
+/// (pan around the center), by their place in the group.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[serde(rename_all = "snake_case")]
+pub enum MovementMirror {
+    #[default]
+    None,
+    /// Every second head (the 2nd, 4th, ...).
+    Alternate,
+    /// The second half of the group (the middle head of an odd group is
+    /// not mirrored).
+    Halves,
+}
+
+impl MovementMirror {
+    /// Whether the head at `order` of `n` is mirrored.
+    pub fn mirrors(self, order: usize, n: usize) -> bool {
+        match self {
+            MovementMirror::None => false,
+            MovementMirror::Alternate => order % 2 == 1,
+            MovementMirror::Halves => order >= n.div_ceil(2),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

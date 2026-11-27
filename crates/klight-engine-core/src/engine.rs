@@ -22,7 +22,7 @@ use crate::compile::{
     CompiledFunction, CompiledMatrix, CompiledMovement, CompiledShow, LogicalChannel, Merge, Role,
     StepContent, NO_ADDR, NO_CHANNEL,
 };
-use crate::effects::{cycle_turns, render_matrix, render_movement};
+use crate::effects::{cycle_turns, movement_size, render_matrix, render_movement};
 use crate::frame::{DmxFrame, FrameSlot};
 use crate::music::MusicClock;
 use crate::playback::{
@@ -984,6 +984,7 @@ impl Engine {
             started_beat,
             paused_since: None,
             groups: 0,
+            effect_until: None,
         };
         {
             let (ctx, _, pool) = self.ctx_parts();
@@ -1383,15 +1384,18 @@ impl Engine {
             }
         }
 
-        // 2. Render layers.
+        // 2. Render layers: the scenes first (also those fading out), as a
+        // relative movement adds to what they give.
         let channels = &self.compiled.channels;
         self.rt.base.clear();
         self.rt.effects.clear();
         for p in &self.rt.playbacks {
-            // Scenes (also those fading out) go to the base layer.
             p.render_base(now, channels, &mut self.rt.base, &mut self.rt.mix);
-            // Effects have no fade out: none while stopping.
-            if p.stopping {
+        }
+        let bpm = self.rt.music.bpm();
+        for p in &self.rt.playbacks {
+            // Effects have no fade out while stopping, but a movement's own.
+            if p.stopping && p.effect_until.is_none() {
                 continue;
             }
             // An effect runs from the start of its function or chaser step.
@@ -1400,8 +1404,11 @@ impl Engine {
                 _ => (p.started_us, p.started_beat, now),
             };
             let turns = |period| cycle_turns(period, start_us, start_beat, t, &self.rt.music);
+            let remaining = p.effect_until.map(|until| until.saturating_sub(now));
+            let base = &self.rt.base;
             let movement = |m: &CompiledMovement, layer: &mut Layer| {
-                render_movement(m, turns(m.effect.period), channels, layer);
+                let size = movement_size(&m.effect, bpm, t.saturating_sub(start_us), remaining);
+                render_movement(m, turns(m.effect.period), size, base, channels, layer);
             };
             let matrix = |m: &CompiledMatrix, layer: &mut Layer| {
                 render_matrix(m, turns(m.period), p.level, channels, layer);

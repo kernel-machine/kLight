@@ -28,6 +28,7 @@ import type {
   GroupLayout,
   MatrixEffect,
   MovementEffect,
+  MovementReach,
   PatchedFixture,
   Show,
 } from './protocol';
@@ -153,6 +154,14 @@ export function chaserTimes(show: Show, functionId: number, bpm: number): Chaser
   return json ? (JSON.parse(json) as ChaserTimes) : null;
 }
 
+/**
+ * The heads a movement effect moves (in group order), the pan and tilt they all
+ * reach and whether the shape goes beyond: from the engine's own heads and ranges.
+ */
+export function movementReach(show: Show, effect: MovementEffect): MovementReach {
+  return JSON.parse(view(show).view.movement_reach(JSON.stringify(effect))) as MovementReach;
+}
+
 /** Color and intensity the scene gives each of its fixtures (the last value wins), from the core. */
 export function sceneLightLooks(show: Show, functionId: number): LightLook[] {
   const json = view(show).view.scene_light_looks(functionId);
@@ -269,9 +278,11 @@ export class Movement {
   constructor(effect: MovementEffect) {
     this.v = new MovementView(JSON.stringify(effect));
   }
-  path(samples = 180): Array<[number, number]> {
-    return pairs(this.v.path(samples));
+  /** The whole shape, or its copy mirrored left to right. */
+  path(samples = 180, mirrored = false): Array<[number, number]> {
+    return pairs(this.v.path(samples, mirrored));
   }
+  /** Where each of `n` heads is, `turns` cycles after the start. */
   heads(turns: number, n: number): Array<[number, number]> {
     return pairs(this.v.heads(turns, Math.max(1, n)));
   }

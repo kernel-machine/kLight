@@ -12,7 +12,7 @@ use crate::vc::VirtualConsole;
 
 /// Current show file schema version. Bump together with a migration in
 /// `klight-persist`.
-pub const SCHEMA_VERSION: u32 = 4;
+pub const SCHEMA_VERSION: u32 = 5;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]

@@ -486,6 +486,38 @@ pub struct ChaserTimes {
     pub pass_ms: f64,
 }
 
+/// A member of the group a movement effect plays on, in group order: its
+/// number in the preview is its place in the list.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct MovementHead {
+    pub fixture: FixtureId,
+    pub head: u16,
+    /// Fixture name, with the head number for fixtures with several heads.
+    pub name: String,
+    /// It has pan or tilt: the effect moves it.
+    pub moves: bool,
+    /// It draws the shape mirrored left to right.
+    pub mirrored: bool,
+}
+
+/// Where the heads of a movement effect can go, in the effect's degrees
+/// (before each fixture's orientation, which mirrors around the center and
+/// may swap the axes).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct MovementReach {
+    pub heads: Vec<MovementHead>,
+    /// Pan every head that gives its range can reach: from `-pan_limit` to
+    /// `+pan_limit`. `None` if no head gives one.
+    pub pan_limit: Option<f32>,
+    pub tilt_limit: Option<f32>,
+    /// Part of the shape is beyond what some head reaches: there the head
+    /// stops at its limit and the shape is flattened. For a relative effect,
+    /// as if the scenes left the heads at the center of their range.
+    pub clipped: bool,
+}
+
 /// A value of a scene that later values override, on some or all of the
 /// channels it writes (values apply in order: the last one wins on every
 /// channel).
