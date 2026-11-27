@@ -139,23 +139,26 @@
       <span class="muted">Select a function to edit it.</span>
     {:else}
       {@const f = selected}
+      <!-- A scene has its own header in the scene editor (test, menu). -->
+      {#if f.kind.type !== 'scene'}
       <div class="row">
         <input value={f.name} onchange={(e) => save({ ...f, name: e.currentTarget.value })} />
         <span class="badge">{kindLabel(f.kind.type)}</span>
-        {#if f.kind.type === 'scene'}
-          {#if active.has(f.id)}
-            <button class="primary" onclick={() => run({ type: 'stop_function', id: f.id })}>Stop</button>
-          {:else}
-            <button title="Runs the scene with its times, to check its fades (the live preview pauses)" onclick={() => run({ type: 'start_function', id: f.id })}>Start</button>
-          {/if}
-          <button onclick={() => duplicate(f)}>Duplicate</button>
-        {/if}
         <button class="danger" onclick={() => { run({ type: 'remove_function', id: f.id }); selectedId = null; }}>Delete</button>
       </div>
+      {/if}
 
       {#if f.kind.type === 'scene'}
         {@const k = f.kind}
-        <SceneEditor {f} scene={k} running={active.has(f.id)} />
+        <SceneEditor
+          {f}
+          scene={k}
+          running={active.has(f.id)}
+          onrun={(start) => run(start ? { type: 'start_function', id: f.id } : { type: 'stop_function', id: f.id })}
+          onrename={(name) => save({ ...f, name })}
+          onduplicate={() => duplicate(f)}
+          ondelete={() => { run({ type: 'remove_function', id: f.id }); selectedId = null; }}
+        />
       {:else if f.kind.type === 'chaser'}
         <ChaserEditor {f} chaser={f.kind} bind:picking />
       {:else if f.kind.type === 'collection'}

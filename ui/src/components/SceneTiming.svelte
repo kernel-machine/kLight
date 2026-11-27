@@ -37,6 +37,21 @@
     opened = true;
   });
 
+  // Folded into one line of summary: set rarely, and last.
+  let showAll = $state(false);
+  const spreadText = $derived(
+    scene.spread.type === 'none' ? 'no delay over the lights' : `delay ${scene.spread.type === 'linear' ? 'one after the other' : 'from the center'}, ${formatTime(scene.spread.step)}`,
+  );
+  const summary = $derived(
+    [
+      `Fade in ${formatTime(scene.timing.fade_in)}`,
+      `fade out ${formatTime(scene.timing.fade_out)}`,
+      `delay ${formatTime(scene.timing.delay)}`,
+      spreadText,
+      ...(scene.attribute_timing.length ? [`own times: ${scene.attribute_timing.map((a) => a.kind.toLowerCase()).join(', ')}`] : []),
+    ].join(' · '),
+  );
+
   const isZero = (t: TimeValue) => ('ms' in t ? t.ms === 0 : t.beats === 0);
   const spreadStep = $derived(scene.spread.type === 'none' ? ZERO : scene.spread.step);
 
@@ -61,7 +76,8 @@
   }
 </script>
 
-<h3>Timing</h3>
+<details class="timing" bind:open={showAll}>
+<summary><span class="arrow" aria-hidden="true">{showAll ? '▾' : '▸'}</span><span class="title">Timing</span> <span class="muted summary">{summary}</span></summary>
 <div class="row">
   {#each FIELDS as [key, label] (key)}
     <button onclick={() => ask(scene.timing[key], (t) => onchange((s) => ({ ...s, timing: { ...s.timing, [key]: t } })))}>{label}: {formatTime(scene.timing[key])}</button>
@@ -108,9 +124,18 @@
       {/each}
   </div>
 </details>
+</details>
 
 <style>
-  .own { margin: 8px 0; }
+  .timing { margin-top: 14px; border: 1px solid var(--border); border-radius: var(--radius); padding: 0 12px; background: var(--panel-2); }
+  .timing > summary { cursor: pointer; padding: 10px 0; display: flex; gap: 10px; align-items: baseline; list-style: none; }
+  .timing > summary::-webkit-details-marker { display: none; }
+  .arrow { color: var(--muted); width: 10px; }
+  .timing[open] > summary { border-bottom: 1px solid var(--border); margin-bottom: 8px; }
+  .timing .title { font-weight: 700; font-size: 15px; }
+  .timing .summary { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .timing > .row { margin-bottom: 8px; }
+  .own { margin: 8px 0 12px; }
   .own summary { cursor: pointer; font-weight: 600; }
   .kinds { display: flex; flex-direction: column; gap: 4px; }
   .kind label { white-space: nowrap; }

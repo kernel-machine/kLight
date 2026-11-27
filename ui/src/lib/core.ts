@@ -7,6 +7,7 @@
 import init, { initSync, ShowView, MovementView, MatrixView, linear_to_hex, hex_to_linear, set_scene_channel, max_sequence_colors, color_sequence_json, beat_flash_bits, widget_light_code, chaser_step_types, beat_choices, collection_member_types } from './wasm/klight_wasm.js';
 import type {
   CoveredValue,
+  LightLook,
   ActiveFunction,
   FunctionCategory,
   WidgetKind,
@@ -143,6 +144,12 @@ export function sceneChannels(show: Show, functionId: number): SceneFixtureChann
 export function sceneLights(show: Show, functionId: number): SceneLights {
   const json = view(show).view.scene_lights(functionId);
   return json ? (JSON.parse(json) as SceneLights) : { members: [], fixtures: [] };
+}
+
+/** Color and intensity the scene gives each of its fixtures (the last value wins), from the core. */
+export function sceneLightLooks(show: Show, functionId: number): LightLook[] {
+  const json = view(show).view.scene_light_looks(functionId);
+  return json ? (JSON.parse(json) as LightLook[]) : [];
 }
 
 /**

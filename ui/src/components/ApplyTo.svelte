@@ -4,11 +4,13 @@
   // a box per model, headed by a bar that chooses them all, with a dot for
   // every group they belong to. It is also the list of the scene's lights:
   // each group, and each fixture added on its own, has a × that takes it out
-  // (a fixture there through a group goes with the group).
+  // (a fixture there through a group goes with the group). Each fixture shows
+  // the color and intensity the scene gives it, and a bulb that lights it at
+  // full to find it on stage. The list scrolls inside the space it is given.
   import { app } from '../lib/app.svelte';
-  import { groupColor, groupsOf } from '../lib/show';
+  import { colorToHex, groupColor, groupsOf } from '../lib/show';
   import { found, lightSections } from '../lib/lightSections';
-  import type { FixtureGroup, SceneLights, Target } from '../lib/protocol';
+  import type { FixtureGroup, LightLook, SceneLights, Target } from '../lib/protocol';
 
   let {
     lights,
@@ -19,6 +21,10 @@
     ongroup,
     onfixtures,
     onremove,
+    looks = [],
+    lit = [],
+    canLight = false,
+    onlight,
   }: {
     lights: SceneLights;
     /** The groups of the scene. */
@@ -32,6 +38,13 @@
     onfixtures: (ids: number[]) => void;
     /** Takes a light (a group, or a fixture added on its own) out of the scene. */
     onremove: (light: Target) => void;
+    /** Color and intensity the scene gives each fixture (from the core). */
+    looks?: LightLook[];
+    /** Fixtures lit at full to find them on stage. */
+    lit?: number[];
+    /** Lighting a fixture is possible (Design mode, full access). */
+    canLight?: boolean;
+    onlight?: (id: number) => void;
   } = $props();
 
   const show = $derived(app.s.show!);
@@ -43,6 +56,15 @@
   const groupName = $derived(groups.find((g) => g.id === group)?.name);
   /** Fixtures that are lights of the scene on their own, not only through a group. */
   const own = $derived(new Set(lights.members.flatMap((m) => (m.target.type === 'fixture' ? [m.target.id] : []))));
+  const lookOf = (id: number) => looks.find((l) => l.fixture === id);
+  /** The look as a swatch: its color (none: hollow), dimmed to its intensity. */
+  function swatch(id: number): { background: string; level: string; label: string } {
+    const l = lookOf(id);
+    const level = l?.intensity == null ? '–' : `${Math.round(l.intensity * 100)}%`;
+    const color = l?.color ? colorToHex(l.color) : null;
+    const label = [color ? `color ${color}` : 'no color', l?.intensity == null ? 'no intensity' : `intensity ${level}`].join(', ');
+    return { background: color ?? 'transparent', level, label };
+  }
   /** The groups of the scene a fixture is in it through. */
   const through = (id: number) =>
     lights.members.flatMap((m) => (m.target.type === 'group' && m.fixtures.includes(id) ? groups.filter((g) => g.id === (m.target as { id: number }).id).map((g) => g.name) : []));
@@ -98,11 +120,19 @@
           <div class="fixtures">
             {#each s.fixtures as f (f.id)}
               {@const via = through(f.id)}
+              {@const sw = swatch(f.id)}
               <span class="item" class:on={chosen.includes(f.id)}>
-                <button class="fixture" class:on={chosen.includes(f.id)} aria-pressed={chosen.includes(f.id)} aria-label={f.name} title={[f.name, ...groupsOf(show, f.id).map((g) => `group ${g.name}`)].join(' · ')} onclick={() => toggle(f.id)}>
+                <button class="fixture" class:on={chosen.includes(f.id)} aria-pressed={chosen.includes(f.id)} aria-label={f.name} title={[f.name, sw.label, ...groupsOf(show, f.id).map((g) => `group ${g.name}`)].join(' · ')} onclick={() => toggle(f.id)}>
+                  <span class="look" class:hollow={sw.background === 'transparent'} style="background:{sw.background}" aria-hidden="true"></span>
                   <span class="name">{f.name}</span>
                   <span class="dots" aria-hidden="true">{#each groupsOf(show, f.id) as g (g.id)}<span class="dot" style="--gc:{groupColor(show, g.id)}"></span>{/each}</span>
+                  <span class="level" aria-hidden="true">{sw.level}</span>
                 </button>
+                {#if onlight}
+                  <button class="bulb" class:lit={lit.includes(f.id)} aria-pressed={lit.includes(f.id)} aria-label="Highlight {f.name}" title={canLight ? 'Lights it at full, in white, to find it on stage' : 'Only in Design mode, with full access'} disabled={!canLight} onclick={() => onlight(f.id)}>
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 1.5a4.5 4.5 0 0 0-2.6 8.2V12h5.2V9.7A4.5 4.5 0 0 0 8 1.5Z"></path><path d="M6 14.5h4"></path></svg>
+                  </button>
+                {/if}
                 {#if own.has(f.id)}
                   <button class="x" aria-label="Remove {f.name} from the scene" title="Remove from the scene" onclick={() => onremove({ type: 'fixture', id: f.id })}>×</button>
                 {:else}
@@ -119,10 +149,12 @@
 </div>
 
 <style>
-  .apply { display: flex; flex-direction: column; gap: 8px; }
+  .apply { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; }
   .apply input { margin-left: auto; width: min(240px, 100%); }
   .chosen { font-size: 12px; color: var(--accent); font-weight: 600; }
-  .lists { display: flex; flex-direction: column; gap: 6px; max-height: max(320px, 45vh); overflow: auto; }
+  /* Takes the height it is given (the editor keeps both columns level) and
+     scrolls; never more than about half the screen. */
+  .lists { display: flex; flex-direction: column; gap: 6px; flex: 1; min-height: 120px; max-height: max(320px, 45vh); overflow: auto; }
   h4 { margin: 4px 0 0; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
   small { opacity: 0.7; font-weight: 400; }
   .dot { display: inline-block; flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--gc); }
@@ -147,8 +179,13 @@
   .box { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 16px; height: 16px; border: 1px solid var(--muted); border-radius: 4px; background: var(--panel); font-size: 12px; line-height: 1; }
   .model.on .box, .model.some .box { background: var(--accent); border-color: var(--accent); color: #fff; }
   .hint { margin-left: auto; font-size: 11px; font-weight: 400; color: var(--muted); }
-  .fixtures { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 4px; padding: 6px; }
-  .fixture { display: flex; justify-content: space-between; align-items: center; gap: 6px; padding: 4px 8px; font-size: 12px; text-align: left; min-width: 0; }
+  .fixtures { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px; padding: 6px; }
+  .look { flex: none; width: 14px; height: 14px; border-radius: 4px; border: 1px solid color-mix(in srgb, var(--text) 30%, transparent); }
+  .look.hollow { border-style: dashed; }
+  .level { flex: none; margin-left: auto; font-size: 11px; opacity: 0.8; font-variant-numeric: tabular-nums; }
+  .bulb { flex: none; display: flex; align-items: center; justify-content: center; width: 30px; padding: 0; border-radius: 0; border-left: none; color: var(--muted); }
+  .bulb.lit { background: #fff; color: #101318; }
+  .fixture { display: flex; align-items: center; gap: 6px; padding: 4px 8px; font-size: 12px; text-align: left; min-width: 0; }
   .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   .dots { display: flex; gap: 3px; }
   .fixture.on { background: var(--accent); border-color: var(--accent); color: #fff; }

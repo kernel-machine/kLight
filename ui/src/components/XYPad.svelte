@@ -11,6 +11,7 @@
     step = 1,
     unit = '°',
     onchange,
+    oncommit,
   }: {
     pan: number;
     tilt: number;
@@ -20,6 +21,8 @@
     step?: number;
     unit?: string;
     onchange: (pan: number, tilt: number) => void;
+    /** The gesture ended (pointer let go, or an arrow key): the place to keep. */
+    oncommit?: () => void;
   } = $props();
 
   let fine = $state(false);
@@ -66,6 +69,7 @@
     set(drag.pan + dp, drag.tilt + dt, true);
   }
   function up() {
+    if (drag) oncommit?.();
     drag = null;
   }
   function key(e: KeyboardEvent) {
@@ -75,6 +79,9 @@
     if (!m) return;
     e.preventDefault();
     set(pan + m[0], tilt + m[1], e.shiftKey || fine);
+  }
+  function keyup(e: KeyboardEvent) {
+    if (e.key.startsWith('Arrow')) oncommit?.();
   }
   const shown = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(1));
 </script>
@@ -94,6 +101,7 @@
     onpointerup={up}
     onpointercancel={up}
     onkeydown={key}
+    onkeyup={keyup}
   >
     <span class="axis h"></span>
     <span class="axis v"></span>

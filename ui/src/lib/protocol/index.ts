@@ -67,6 +67,7 @@ export type { LedBehavior } from "./LedBehavior";
 export type { LedBehaviorInfo } from "./LedBehaviorInfo";
 export type { LibraryEntry } from "./LibraryEntry";
 export type { LibraryMode } from "./LibraryMode";
+export type { LightLook } from "./LightLook";
 export type { MappingId } from "./MappingId";
 export type { MatrixAlgorithm } from "./MatrixAlgorithm";
 export type { MatrixEffect } from "./MatrixEffect";

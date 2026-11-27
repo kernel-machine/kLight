@@ -519,11 +519,27 @@ Always visible:
 - **Blackout** and **grand master** always reachable.
 - **DMX monitor** (channels per universe) that can be opened from any screen.
 
-The scene editor starts and stops its scene, and can preview it on the lights
-(off until asked for), following the controls and channel faders as they move.
-Starting the scene pauses the preview, so that the scene's own times show; moving
-a control again goes on with it. A **highlight** puts the chosen lights at full
-(white where they mix colors) to find them on stage: it is sent as a preview,
+The scene editor is laid out in the order of the work: a header (name; a
+**test** group with Start/Stop and the live preview; the rarely used actions —
+duplicate, programmer values, removing values with no effect, delete — in a ⋯
+menu), then the **lights** and the panel that **sets** a value side by side, then
+the scene as **values** or as **DMX channels** (one view at a time), and the
+**times** folded into a line of summary at the bottom. The lights column takes
+the height of the panel next to it and scrolls: more fixtures never make it
+longer than the panel.
+
+A control of the panel goes **straight into the scene** when it is let go (a
+slider released, a field left, a color or a quick level picked): one undo step
+each, no "add" button. While it moves, the live preview shows it. Choosing lights
+and an attribute shows the value the scene already gives them, so a change
+starts from it. Each light shows the color and intensity the scene gives it
+(core `scene_light_looks`: its values in order, the last one wins).
+
+The scene editor can preview the scene on the lights (off until asked for),
+following the controls and channel faders as they move. Starting the scene
+pauses the preview, so that the scene's own times show; moving a control again
+goes on with it. A **highlight** (a bulb on each light) puts that light at full
+(white where it mixes colors) to find it on stage: it is sent as a preview,
 after the scene values so that it wins, and stores nothing.
 Undo and redo of show changes are always at hand in Design mode.
 

@@ -17,14 +17,17 @@ From a tablet or phone open `http://<pc-address>:9400/?token=<token>`.
 - **FX**: scenes (fades, delays, delays spread over the group, own times per
   attribute), chasers (times in ms or beats), cue lists with GO/Back/Pause and
   *move in black*, movement effects and matrix effects, palettes.
-  In the scene editor, *Choose lights* is also the list of the scene's lights:
-  the × next to a group or a fixture takes it out (a fixture there only
-  through a group goes with the group). Values apply in order: on every channel the last one
-  wins, whoever it goes to. A value that later ones override entirely is
-  greyed out as "no effect" and can be removed in one click. *Highlight* lights
-  the chosen fixtures at full to find them on stage; pan and tilt can be
-  dragged on an XY pad (*Fine*, or Shift, moves ten times slower). *Start* runs
-  the scene with its own times and pauses the live preview.
+  The scene editor follows the work: *Lights* on the left (the × next to a
+  group or a fixture takes it out; each light shows its color and intensity in
+  the scene; its bulb lights it at full to find it on stage), *Set* on the right:
+  choose an attribute and move its control — the value goes into the scene as
+  soon as you let go (Undo takes it back). Below, the scene as *Values* or as
+  *DMX channels*; at the bottom the *Timing*, folded into one line. Values
+  apply in order: on every channel the last one wins, whoever it goes to; one
+  that later ones override entirely is greyed out as "no effect". *Start* runs
+  the scene with its own times and pauses the live preview; Duplicate, the
+  programmer and Delete are in the ⋯ menu. Pan and tilt can be dragged on an XY
+  pad (*Fine*, or Shift, moves ten times slower).
 - **Virtual Console**: in Design mode add and move widgets; in Show mode the
   widgets are live and the structure is locked.
 - **Simple Desk**: tap a group or some fixtures, then an intention (intensity,
